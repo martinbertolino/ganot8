@@ -311,3 +311,24 @@ def test_box_tool_creates_a_filled_rectangle_by_default(canvas):
     assert created.filled is True
     # Filled means the whole shape is the click target, not just its outline.
     assert created.hit_test(Point(70, 50), 1)
+
+
+def test_choosing_a_creation_tool_clears_the_selection(canvas):
+    """So the style sidebar describes what the tool will make, not the past."""
+    canvas.activate_tool("box")
+    drag(canvas, (10, 10), (110, 90))
+    created = canvas.document.annotations[0]
+    assert canvas.selection == [created]
+
+    canvas.activate_tool("highlight")
+    assert canvas.selection == []
+    # The annotation itself is untouched; only the selection changed.
+    assert canvas.document.annotations == [created]
+
+
+def test_switching_to_select_does_not_clear_the_selection(canvas):
+    canvas.activate_tool("box")
+    drag(canvas, (10, 10), (110, 90))
+    created = canvas.document.annotations[0]
+    canvas.activate_tool("select")
+    assert canvas.selection == [created]

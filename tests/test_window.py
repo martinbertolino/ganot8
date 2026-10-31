@@ -279,8 +279,8 @@ def test_style_group_hides_entirely_for_the_select_tool(window):
 
 
 def test_style_group_appears_for_a_creation_tool(window):
-    window.canvas.activate_tool("highlight")
     window.canvas.clear_selection()
+    window.canvas.activate_tool("highlight")
     assert window._style_group.get_visible()
     assert _visible_rows(window) == {"colour", "opacity"}
 
@@ -506,3 +506,56 @@ def test_sidebar_buttons_are_inset_from_the_card_edge(window):
 def test_selection_summary_is_inset_too(window):
     assert window._selection_label.get_margin_start() >= 8
     assert window._selection_label.get_margin_end() >= 8
+
+
+# -- the sidebar must follow the active tool -----------------------------
+
+
+def test_picking_a_tool_updates_the_sidebar_while_something_is_selected(window):
+    """The panel used to keep describing the selection until the tool was used.
+
+    Drawing a shape selects it, so the very next tool click left the sidebar
+    showing the wrong annotation's options.
+    """
+    box = add_box(window)
+    window.canvas.set_selection([box])
+    assert _visible_rows(window) == {"colour", "opacity", "filled"}
+
+    window.canvas.activate_tool("underline")
+    assert _visible_rows(window) == {"colour", "width", "opacity", "wavy"}
+    assert "next underline" in window._selection_label.get_text()
+
+
+@pytest.mark.parametrize(
+    "tool,expected",
+    [
+        ("highlight", {"colour", "opacity"}),
+        ("redact", {"colour"}),
+        ("underline", {"colour", "width", "opacity", "wavy"}),
+        ("arrow", {"colour", "width", "opacity"}),
+        ("text", {"colour", "font", "opacity", "background"}),
+        ("box", {"colour", "opacity", "filled"}),
+    ],
+)
+def test_every_creation_tool_shows_its_own_options_immediately(window, tool, expected):
+    window.canvas.set_selection([add_box(window)])
+    window.canvas.activate_tool(tool)
+    assert _visible_rows(window) == expected
+
+
+def test_switching_to_select_keeps_the_selection(window):
+    """Select is for manipulating what is already there."""
+    box = add_box(window)
+    window.canvas.activate_tool("box")
+    window.canvas.set_selection([box])
+    window.canvas.activate_tool("select")
+    assert window.canvas.selection == [box]
+
+
+def test_arrange_actions_follow_the_cleared_selection(window):
+    """Clearing on tool switch must disable the buttons that need a selection."""
+    window.canvas.set_selection([add_box(window)])
+    assert enabled(window, "delete")
+    window.canvas.activate_tool("arrow")
+    assert not enabled(window, "delete")
+    assert not enabled(window, "raise-annotation")

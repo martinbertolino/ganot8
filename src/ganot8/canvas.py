@@ -226,6 +226,13 @@ class Canvas(Gtk.DrawingArea):
         if self._tool is not None:
             self._tool.deactivate()
         self._tool = tool
+        if getattr(tool, "annotation_type", None) is not None:
+            # Picking a creation tool means "I am about to draw". The sidebar
+            # shows the selection whenever there is one, so keeping the old
+            # selection here left it describing an annotation the tool is not
+            # about to make - and it only corrected itself once the tool was
+            # used and the new annotation took over the selection.
+            self.set_selection([])
         tool.activate()
         self._update_cursor()
         self.emit("tool-changed", name)

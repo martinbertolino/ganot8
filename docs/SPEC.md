@@ -341,6 +341,13 @@ in the UI that solid is the safe choice for sensitive data.
     in a kind's `style_properties` are shown, and the whole group hides when the active
     tool creates nothing. With a selection the rows edit it; with none they set what the
     active tool will create next.
+
+    Picking a **creation** tool therefore clears the selection, so the panel describes
+    what that tool is about to make. Without this the sidebar kept showing the selected
+    annotation's options and only corrected itself once the tool was used — and since
+    drawing a shape selects it, the very next tool click always hit that case. The
+    Select tool keeps the selection, because manipulating what is already there is its
+    whole job.
   - **Arrange z-order** — Raise and Lower, with a description line reading "Which
     annotation is drawn on top where they overlap". Enabled only for a single selection,
     since the step is ambiguous otherwise.
