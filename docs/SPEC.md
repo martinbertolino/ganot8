@@ -325,9 +325,16 @@ in the UI that solid is the safe choice for sensitive data.
 - **Centre:** `Gtk.DrawingArea` canvas in a `Gtk.ScrolledWindow`; checkerboard outside
   the image, zoom 10%–800% with fit/100% presets, Ctrl+scroll zoom at pointer,
   middle-drag or space-drag pan.
-- **Right sidebar (`Adw.PreferencesGroup` rows):** style properties for the active tool
-  or current selection — colour (`Gtk.ColorDialogButton`), width, alpha, redact style,
-  font (`Gtk.FontDialogButton`), plus Raise/Lower/Delete.
+- **Right sidebar**, three `Adw.PreferencesGroup`s:
+  - **Style** — colour (`Gtk.ColorDialogButton`), font (`Gtk.FontDialogButton`), line
+    width, opacity, and the per-kind switches (filled, wavy, background). Only the rows
+    in a kind's `style_properties` are shown, and the whole group hides when the active
+    tool creates nothing. With a selection the rows edit it; with none they set what the
+    active tool will create next.
+  - **Arrange z-order** — Raise and Lower, with a description line reading "Which
+    annotation is drawn on top where they overlap". Enabled only for a single selection,
+    since the step is ambiguous otherwise.
+  - **Selection** — Delete, plus a summary line ("1 box selected").
 - **Toasts** for export success (with a "Show in Files" action) and errors.
 
 Behaviour: drawing a shape selects it and switches back to Select (so it can be
@@ -467,3 +474,24 @@ The suite splits in two, and the distinction matters for CI:
 Multi-frame/animated output, layers panel, SVG/PDF vector export, OCR, speech balloons,
 image filters beyond blur/pixelate, multi-document tabs, cloud upload, i18n (strings
 stay translatable via `_()` from day one, but no catalogues yet).
+
+## 13. Open issues
+
+Things that are in scope but unresolved. Decisions get written into the section they
+belong to; this is only for what is still open.
+
+### Two tool icons do not communicate their tool
+
+Highlight uses `color-select-symbolic` (an eyedropper) and Redact uses
+`checkbox-checked-symbolic` (a ticked box). Both resolve in the Adwaita theme, so the
+icon-existence test in section 11 passes — that test proves an icon *renders*, not that
+it *means* anything, and these two are the counter-example. Adwaita ships no marker or
+redaction glyph. Either pick closer stock icons or draw a few custom symbolic SVGs into
+`data/icons/`, which phase 6 creates anyway. Found only once `devtools/shoot_ui.py`
+made the real UI inspectable.
+
+### No CI, and 101 tests would skip silently on one
+
+There is no CI configuration. Adding one without `xorg-x11-server-Xvfb` and `xvfb-run`
+would give a green build that exercises none of the widget code, because the four
+display-dependent modules skip themselves rather than fail (section 11).
