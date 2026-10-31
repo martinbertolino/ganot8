@@ -792,3 +792,236 @@ def _rounded_rect(cr: cairo.Context, rect: Rect, radius: float) -> None:
     cr.arc(rect.left + radius, rect.bottom - radius, radius, math.pi / 2, math.pi)
     cr.arc(rect.left + radius, rect.top + radius, radius, math.pi, 3 * math.pi / 2)
     cr.close_path()
+
+
+@register
+@dataclass(eq=False)
+class Ellipse(RectAnnotation):
+    """An ellipse inscribed in its rect, outlined or filled."""
+
+    kind: ClassVar[str] = "ellipse"
+    label: ClassVar[str] = "Ellipse"
+    style_properties: ClassVar[tuple[str, ...]] = (
+        STYLE_COLOR,
+        STYLE_STROKE_WIDTH,
+        STYLE_OPACITY,
+        STYLE_FILLED,
+    )
+
+    filled: bool = False
+
+    def visible_style_properties(self) -> tuple[str, ...]:
+        if self.filled:
+            return tuple(p for p in self.style_properties if p != STYLE_STROKE_WIDTH)
+        return self.style_properties
+
+    def _path(self, cr: cairo.Context, rect: Rect) -> None:
+        """Trace the ellipse by scaling a unit circle into the rect."""
+        cr.save()
+        cr.translate(rect.x + rect.width / 2, rect.y + rect.height / 2)
+        cr.scale(max(rect.width, 1e-6) / 2, max(rect.height, 1e-6) / 2)
+        cr.arc(0, 0, 1, 0, math.tau)
+        cr.restore()
+
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
+        rect = self.rect.normalized()
+        if rect.is_empty():
+            return
+        red, green, blue, alpha = self.color
+        if self.filled:
+            # The scaling that traces the path would also scale the stroke
+            # unevenly, so the path is built inside save/restore and the
+            # paint happens in plain user space.
+            self._path(cr, rect)
+            cr.set_source_rgba(red, green, blue, alpha * self.opacity)
+            cr.fill()
+            return
+        self._path(cr, rect)
+        self._set_stroke(cr)
+        cr.stroke()
+
+    def hit_test(self, point: Point, tolerance: float) -> bool:
+        rect = self.rect.normalized()
+        half_w = max(rect.width / 2, 1e-6)
+        half_h = max(rect.height / 2, 1e-6)
+        centre = rect.center
+        # Normalised radius: 1.0 is exactly on the outline.
+        radius = math.hypot(
+            (point.x - centre.x) / half_w, (point.y - centre.y) / half_h
+        )
+        if self.filled:
+            slack = tolerance / min(half_w, half_h)
+            return radius <= 1.0 + slack
+        reach = (self.stroke_width / 2 + tolerance) / min(half_w, half_h)
+        return abs(radius - 1.0) <= reach
+
+    def geometry_to_dict(self) -> dict[str, Any]:
+        data = super().geometry_to_dict()
+        data["filled"] = self.filled
+        return data
+
+    def geometry_from_dict(self, data: dict[str, Any]) -> None:
+        super().geometry_from_dict(data)
+        if "filled" in data:
+            self.filled = bool(data["filled"])
+
+
+@register
+@dataclass(eq=False)
+class Freehand(Annotation):
+    """A line drawn by hand, stored as the points it passed through."""
+
+    kind: ClassVar[str] = "freehand"
+    label: ClassVar[str] = "Freehand"
+    style_properties: ClassVar[tuple[str, ...]] = (
+        STYLE_COLOR,
+        STYLE_STROKE_WIDTH,
+        STYLE_OPACITY,
+    )
+
+    points: list[Point] = field(default_factory=list)
+
+    def bounds(self) -> Rect:
+        if not self.points:
+            return EMPTY_RECT
+        xs = [p.x for p in self.points]
+        ys = [p.y for p in self.points]
+        reach = self.stroke_width / 2 + 1
+        return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)).inflated(reach)
+
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
+        if len(self.points) < 2:
+            if len(self.points) == 1:
+                # A tap still leaves a mark, rather than vanishing.
+                point = self.points[0]
+                red, green, blue, alpha = self.color
+                cr.set_source_rgba(red, green, blue, alpha * self.opacity)
+                cr.arc(point.x, point.y, max(0.5, self.stroke_width / 2), 0, math.tau)
+                cr.fill()
+            return
+        self._set_stroke(cr)
+        cr.move_to(self.points[0].x, self.points[0].y)
+        for point in self.points[1:]:
+            cr.line_to(point.x, point.y)
+        cr.stroke()
+
+    def hit_test(self, point: Point, tolerance: float) -> bool:
+        reach = self.stroke_width / 2 + tolerance
+        if len(self.points) == 1:
+            return point.distance_to(self.points[0]) <= reach
+        return any(
+            distance_to_segment(point, a, b) <= reach
+            for a, b in zip(self.points, self.points[1:])
+        )
+
+    def handles(self) -> dict[Handle, Point]:
+        """None: a hand-drawn stroke has no meaningful control points."""
+        return {}
+
+    def move(self, dx: float, dy: float) -> None:
+        self.points = [p.translated(dx, dy) for p in self.points]
+
+    def set_handle(self, handle: Handle, point: Point, *, constrain: bool = False) -> None:
+        return
+
+    def geometry_to_dict(self) -> dict[str, Any]:
+        return {"points": [p.to_list() for p in self.points]}
+
+    def geometry_from_dict(self, data: dict[str, Any]) -> None:
+        if "points" in data:
+            self.points = [Point.from_list(entry) for entry in data["points"]]
+
+
+@register
+@dataclass(eq=False)
+class Badge(Annotation):
+    """A numbered disc, for walking someone through a screenshot step by step."""
+
+    kind: ClassVar[str] = "badge"
+    label: ClassVar[str] = "Badge"
+    style_properties: ClassVar[tuple[str, ...]] = (
+        STYLE_COLOR,
+        STYLE_FONT,
+        STYLE_OPACITY,
+    )
+
+    centre: Point = Point(0.0, 0.0)
+    number: int = 1
+    radius: float = 18.0
+    text_color: RGBA = (1.0, 1.0, 1.0, 1.0)
+    font: str = "Sans Bold 16"
+
+    def bounds(self) -> Rect:
+        return Rect(
+            self.centre.x - self.radius,
+            self.centre.y - self.radius,
+            self.radius * 2,
+            self.radius * 2,
+        )
+
+    def handles(self) -> dict[Handle, Point]:
+        """East only: dragging it resizes the disc."""
+        return {Handle.E: Point(self.centre.x + self.radius, self.centre.y)}
+
+    def move(self, dx: float, dy: float) -> None:
+        self.centre = self.centre.translated(dx, dy)
+
+    def set_handle(self, handle: Handle, point: Point, *, constrain: bool = False) -> None:
+        if handle is Handle.E:
+            self.radius = max(6.0, abs(point.x - self.centre.x))
+
+    def hit_test(self, point: Point, tolerance: float) -> bool:
+        return point.distance_to(self.centre) <= self.radius + tolerance
+
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
+        if self.radius <= 0:
+            return
+        red, green, blue, alpha = self.color
+        cr.save()
+        cr.set_source_rgba(red, green, blue, alpha * self.opacity)
+        cr.arc(self.centre.x, self.centre.y, self.radius, 0, math.tau)
+        cr.fill()
+        cr.restore()
+
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(Pango.FontDescription.from_string(self.font))
+        layout.set_text(str(self.number), -1)
+        width, height = layout.get_pixel_size()
+
+        text_red, text_green, text_blue, text_alpha = self.text_color
+        cr.save()
+        cr.set_source_rgba(text_red, text_green, text_blue, text_alpha * self.opacity)
+        cr.move_to(self.centre.x - width / 2, self.centre.y - height / 2)
+        PangoCairo.show_layout(cr, layout)
+        cr.restore()
+
+    def geometry_to_dict(self) -> dict[str, Any]:
+        return {
+            "centre": self.centre.to_list(),
+            "number": self.number,
+            "radius": self.radius,
+            "text_color": list(self.text_color),
+            "font": self.font,
+        }
+
+    def geometry_from_dict(self, data: dict[str, Any]) -> None:
+        if "centre" in data:
+            self.centre = Point.from_list(data["centre"])
+        if "number" in data:
+            self.number = int(data["number"])
+        if "radius" in data:
+            self.radius = float(data["radius"])
+        if "text_color" in data:
+            self.text_color = tuple(float(c) for c in data["text_color"])
+        if "font" in data:
+            self.font = str(data["font"])
+
+
+def next_badge_number(annotations) -> int:
+    """One past the highest badge already placed, so numbering continues.
+
+    Counting badges would restart at a number already used once an earlier one
+    had been deleted.
+    """
+    numbers = [a.number for a in annotations if isinstance(a, Badge)]
+    return max(numbers) + 1 if numbers else 1

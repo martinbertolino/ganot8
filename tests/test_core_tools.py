@@ -49,7 +49,18 @@ def drag(canvas: Canvas, start, end, state=NONE, steps: int = 4) -> None:
 
 def test_every_core_tool_is_available(canvas):
     names = [tool.name for tool in canvas.available_tools()]
-    assert names == ["select", "highlight", "redact", "underline", "arrow", "text", "box"]
+    assert names == [
+        "select",
+        "highlight",
+        "redact",
+        "underline",
+        "arrow",
+        "text",
+        "box",
+        "ellipse",
+        "freehand",
+        "badge",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -332,3 +343,88 @@ def test_switching_to_select_does_not_clear_the_selection(canvas):
     created = canvas.document.annotations[0]
     canvas.activate_tool("select")
     assert canvas.selection == [created]
+
+
+# -- phase 5 tools -------------------------------------------------------
+
+
+def test_ellipse_tool_creates_an_ellipse(canvas):
+    from ganot8.annotations import Ellipse
+
+    canvas.activate_tool("ellipse")
+    drag(canvas, (20, 20), (120, 80))
+    created = canvas.document.annotations[0]
+    assert isinstance(created, Ellipse)
+    assert created.rect == Rect(20, 20, 100, 60)
+
+
+def test_freehand_tool_records_the_path(canvas):
+    from ganot8.annotations import Freehand
+
+    canvas.activate_tool("freehand")
+    drag(canvas, (20, 20), (160, 90), steps=12)
+    created = canvas.document.annotations[0]
+    assert isinstance(created, Freehand)
+    assert len(created.points) > 2
+    assert created.points[0] == Point(20, 20)
+    assert created.points[-1] == Point(160, 90)
+
+
+def test_freehand_thins_out_densely_packed_points(canvas):
+    """Motion events arrive far denser than the stroke needs."""
+    canvas.activate_tool("freehand")
+    drag(canvas, (20, 20), (40, 20), steps=200)
+    created = canvas.document.annotations[0]
+    assert len(created.points) < 60
+
+
+def test_a_freehand_tap_creates_nothing(canvas):
+    canvas.activate_tool("freehand")
+    drag(canvas, (50, 50), (51, 50), steps=1)
+    assert canvas.document.annotations == []
+
+
+def test_badge_tool_places_a_numbered_badge(canvas):
+    from ganot8.annotations import Badge
+
+    canvas.activate_tool("badge")
+    drag(canvas, (40, 40), (40, 40), steps=1)
+    created = canvas.document.annotations[0]
+    assert isinstance(created, Badge)
+    assert created.number == 1
+    assert created.centre == Point(40, 40)
+
+
+def test_consecutive_badges_are_numbered_in_order(canvas):
+    canvas.activate_tool("badge")
+    for index in range(3):
+        drag(canvas, (40 + index * 50, 40), (40 + index * 50, 40), steps=1)
+    assert [a.number for a in canvas.document.annotations] == [1, 2, 3]
+
+
+def test_badge_tool_stays_active_between_badges(canvas):
+    """Badges come in runs, so returning to Select each time would be wrong."""
+    canvas.activate_tool("badge")
+    drag(canvas, (40, 40), (40, 40), steps=1)
+    assert canvas.tool_name == "badge"
+
+
+def test_dragging_a_badge_sizes_it(canvas):
+    canvas.activate_tool("badge")
+    drag(canvas, (60, 60), (100, 60))
+    assert canvas.document.annotations[0].radius == pytest.approx(40)
+
+
+def test_each_new_tool_is_undoable_in_one_step(canvas):
+    for tool, start, end in (
+        ("ellipse", (10, 10), (80, 60)),
+        ("freehand", (10, 100), (90, 140)),
+        ("badge", (200, 50), (200, 50)),
+    ):
+        canvas.activate_tool(tool)
+        drag(canvas, start, end, steps=6)
+    assert len(canvas.document.annotations) == 3
+    assert canvas.document.history.depth == 3
+    for _ in range(3):
+        canvas.document.history.undo()
+    assert canvas.document.annotations == []

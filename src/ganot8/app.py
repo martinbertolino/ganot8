@@ -42,6 +42,9 @@ _TOOL_ACCELERATORS = {
     "arrow": "a",
     "text": "t",
     "box": "b",
+    "ellipse": "e",
+    "freehand": "f",
+    "badge": "n",
 }
 
 _STYLESHEET = b"""

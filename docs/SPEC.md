@@ -147,7 +147,9 @@ ganot8/
 │   │   ├── underline.py        # UnderlineTool (forced horizontal)
 │   │   ├── arrow.py            # ArrowTool
 │   │   ├── text.py             # TextTool
-│   │   ├── badge.py            # (phase 5) numbered step badges
+│   │   ├── ellipse.py          # EllipseTool
+│   │   ├── freehand.py         # FreehandTool
+│   │   ├── badge.py            # BadgeTool, auto-numbered
 │   │   └── crop.py             # (phase 5) crop + rotate
 │   ├── imageio/
 │   │   ├── loader.py           # Pillow-first load, GdkPixbuf fallback
@@ -202,9 +204,9 @@ Annotation types (dataclasses sharing a common protocol):
 | `Arrow` | start, end | colour, width, opacity, `head_scale` | built |
 | `TextLabel` | anchor, wrap width | text, Pango font string, colour, opacity, optional background plate + padding | built |
 | `Box` | rect | colour, width, opacity, filled (**default on**) | built |
-| `Ellipse` | rect | stroke colour/width, optional fill | phase 5 |
-| `Freehand` | point list | colour, width | phase 5 |
-| `Badge` | centre point, number | fill/text colour, radius | phase 5 |
+| `Ellipse` | rect | colour, width, opacity, filled | built |
+| `Freehand` | point list | colour, width, opacity | built |
+| `Badge` | centre, number, radius | colour, font, opacity; numbering continues past the highest badge placed | built |
 
 `Redact.style` is serialised already, so adding blur and pixelate in phase 5 needs no
 project-format change. `Arrow.head_scale` is likewise stored but not yet exposed in the
@@ -402,13 +404,13 @@ motion event.
 `Ctrl+Q` quit · arrow keys nudge 1px, `Shift`+arrow 10px · `Escape` cancel or deselect.
 
 **Tool keys:** `S` select · `H` highlight · `R` redact · `U` underline · `A` arrow ·
-`T` text · `B` box. These are bound to the stateful `win.tool` action, so the detailed
-action name carries the tool (`win.tool::highlight`).
+`T` text · `B` box · `E` ellipse · `F` freehand · `N` badge. These are bound to the
+stateful `win.tool` action, so the detailed action name carries the tool
+(`win.tool::highlight`).
 
 **Planned, not yet bound:** `Ctrl+V` paste, `Ctrl+C` copy flattened and
 `Ctrl+Shift+P` screenshot (phase 6 — all three are clipboard/portal work, so they
-land together); `E` ellipse,
-`F` freehand, `N` badge, `C` crop (phase 5); `F1` shortcuts window — note this needs a
+land together); `C` crop; `F1` shortcuts window — note this needs a
 `Gtk.ShortcutsWindow` built and a `win.show-help-overlay` action added, which is
 currently unassigned to any phase; fold it into phase 6.
 
@@ -459,7 +461,7 @@ The suite splits in two, and the distinction matters for CI:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_effects`,
-  `test_spec`.
+  `test_shapes_extra`, `test_spec`.
 - **Needs a display** (124 tests as of phase 4) — `test_tools`, `test_core_tools`,
   `test_window`, `test_centering`. These construct real GTK widgets, and
   `test_centering` presents a real toplevel and drives genuine allocation cycles.

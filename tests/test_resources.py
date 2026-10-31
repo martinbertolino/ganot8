@@ -9,7 +9,13 @@ import pytest
 from ganot8 import resources
 from ganot8.tools import registered_tools
 
-BUNDLED = ("ganot8-select-symbolic", "ganot8-highlight-symbolic", "ganot8-redact-symbolic")
+BUNDLED = (
+    "ganot8-select-symbolic",
+    "ganot8-highlight-symbolic",
+    "ganot8-redact-symbolic",
+    "ganot8-ellipse-symbolic",
+    "ganot8-badge-symbolic",
+)
 
 
 def test_icon_directory_follows_the_theme_layout():

@@ -288,7 +288,9 @@ def test_style_group_appears_for_a_creation_tool(window):
 
 
 def test_every_tool_has_a_strip_button(window):
-    assert len(window._tool_buttons) == 7
+    from ganot8.tools import registered_tools
+
+    assert set(window._tool_buttons) == {tool.name for tool in registered_tools()}
 
 
 def test_every_tool_icon_exists_in_the_theme(window):
