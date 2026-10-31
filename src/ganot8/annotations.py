@@ -218,7 +218,9 @@ class Box(RectAnnotation):
         STYLE_FILLED,
     )
 
-    filled: bool = False
+    #: Filled by default: a solid block is what a box is usually wanted for,
+    #: and an outline is one switch away.
+    filled: bool = True
 
     def draw(self, cr: cairo.Context) -> None:
         rect = self.rect.normalized()

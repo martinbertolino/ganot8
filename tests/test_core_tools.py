@@ -298,3 +298,12 @@ def test_created_annotations_are_selectable_and_movable(canvas, tool_name):
     canvas.set_selection([created])
     assert canvas.tool.on_key(Gdk.KEY_Right, SHIFT)
     assert created.bounds().x == pytest.approx(before.x + 10)
+
+
+def test_box_tool_creates_a_filled_rectangle_by_default(canvas):
+    canvas.activate_tool("box")
+    drag(canvas, (20, 20), (120, 80))
+    created = canvas.document.annotations[0]
+    assert created.filled is True
+    # Filled means the whole shape is the click target, not just its outline.
+    assert created.hit_test(Point(70, 50), 1)

@@ -197,7 +197,7 @@ Annotation types (dataclasses sharing a common protocol):
 | `Underline` | start, end | colour, width, opacity, wavy | built |
 | `Arrow` | start, end | colour, width, opacity, `head_scale` | built |
 | `TextLabel` | anchor, wrap width | text, Pango font string, colour, opacity, optional background plate + padding | built |
-| `Box` | rect | colour, width, opacity, filled | built |
+| `Box` | rect | colour, width, opacity, filled (**default on**) | built |
 | `Ellipse` | rect | stroke colour/width, optional fill | phase 5 |
 | `Freehand` | point list | colour, width | phase 5 |
 | `Badge` | centre point, number | fill/text colour, radius | phase 5 |
@@ -495,3 +495,11 @@ made the real UI inspectable.
 There is no CI configuration. Adding one without `xorg-x11-server-Xvfb` and `xvfb-run`
 would give a green build that exercises none of the widget code, because the four
 display-dependent modules skip themselves rather than fail (section 11).
+
+### Line Width does nothing for a filled Box
+
+`Box.draw` either fills or strokes, never both, so with `filled` now defaulting to on
+the sidebar's Line Width row has no visible effect on a default box. The row is shown
+because `STYLE_STROKE_WIDTH` is in `Box.style_properties`, which is still correct for
+the un-filled case. Either draw a fill *and* an outline, or hide the row while `filled`
+is set.

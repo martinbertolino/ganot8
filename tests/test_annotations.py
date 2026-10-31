@@ -42,7 +42,7 @@ def test_handles_are_the_eight_rect_handles():
 
 
 def test_hollow_box_is_only_clickable_on_its_outline():
-    box = Box(rect=Rect(0, 0, 100, 100), stroke_width=2)
+    box = Box(rect=Rect(0, 0, 100, 100), stroke_width=2, filled=False)
     assert box.hit_test(Point(0, 50), tolerance=2)      # on the left edge
     assert not box.hit_test(Point(50, 50), tolerance=2)  # empty middle
     assert not box.hit_test(Point(200, 200), tolerance=2)
@@ -54,7 +54,7 @@ def test_filled_box_is_clickable_anywhere_inside():
 
 
 def test_hit_tolerance_widens_the_target():
-    box = Box(rect=Rect(0, 0, 100, 100), stroke_width=1)
+    box = Box(rect=Rect(0, 0, 100, 100), stroke_width=1, filled=False)
     assert not box.hit_test(Point(-5, 50), tolerance=1)
     assert box.hit_test(Point(-5, 50), tolerance=6)
 
@@ -115,10 +115,14 @@ def test_missing_kind_is_treated_as_unknown():
     assert isinstance(annotation_from_dict({"rect": [0, 0, 1, 1]}), UnknownAnnotation)
 
 
-def test_box_draws_pixels():
+def test_box_is_filled_by_default():
+    assert Box().filled is True
+
+
+def test_hollow_box_draws_pixels():
     surface = new_surface(20, 20)
     cr = cairo.Context(surface)
-    Box(rect=Rect(5, 5, 10, 10), color=(1, 0, 0, 1), stroke_width=2).draw(cr)
+    Box(rect=Rect(5, 5, 10, 10), color=(1, 0, 0, 1), stroke_width=2, filled=False).draw(cr)
     image = surface_to_pil(surface)
     assert image.getpixel((5, 5))[3] > 0     # on the outline
     assert image.getpixel((10, 10))[3] == 0  # hollow middle

@@ -168,11 +168,15 @@ def test_colour_change_round_trips_through_the_button(window):
 
 
 def test_filled_switch_applies(window):
+    """Boxes are filled by default, so the switch is exercised by clearing it."""
     annotation = add_box(window)
-    window.canvas.set_selection([annotation])
-    window._filled_row.set_active(True)
     assert annotation.filled is True
+    window.canvas.set_selection([annotation])
+    window._filled_row.set_active(False)
+    assert annotation.filled is False
     assert window.document.history.undo_label == "Change Fill"
+    window.lookup_action("undo").activate(None)
+    assert annotation.filled is True
 
 
 def test_unsupported_style_rows_are_hidden(window):
