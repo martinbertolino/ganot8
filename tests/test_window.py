@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 
 from ganot8 import gi_init  # noqa: F401
-from gi.repository import Adw, Gdk, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from ganot8.annotations import Box
 from ganot8.document import Document
@@ -25,6 +25,7 @@ Gtk.init()
 
 Adw.init()
 
+from ganot8 import window as window_module  # noqa: E402
 from ganot8.window import Window  # noqa: E402
 
 
@@ -833,3 +834,167 @@ def test_the_redact_tool_names_its_styles(window):
     redact = next(t for t in registered_tools() if t.name == "redact")
     for style in ("solid", "blur", "pixelate"):
         assert style in redact.tooltip.lower(), style
+
+
+# -- screenshots -----------------------------------------------------------
+
+
+def menu_actions(model: Gio.MenuModel) -> set[str]:
+    """Every action name reachable from a menu model, sections included."""
+    found: set[str] = set()
+    for index in range(model.get_n_items()):
+        action = model.get_item_attribute_value(index, "action", None)
+        if action is not None:
+            found.add(action.get_string())
+        for link in ("section", "submenu"):
+            child = model.get_item_link(index, link)
+            if child is not None:
+                found |= menu_actions(child)
+    return found
+
+
+def test_the_main_menu_offers_every_way_in(window):
+    """Screenshot and Paste were bound to accelerators and listed nowhere, so
+    the only way to discover them was to read the shortcuts dialog."""
+    actions = menu_actions(window._menu)
+    assert "win.screenshot" in actions
+    assert "win.paste" in actions
+    assert "win.open" in actions
+
+
+def pump(iterations: int = 500) -> None:
+    """Run the main loop until it has nothing left to do."""
+    context = GLib.MainContext.default()
+    for _ in range(iterations):
+        if not context.pending():
+            break
+        context.iteration(False)
+
+
+def fake_portal(monkeypatch, outcome: str, detail: str = ""):
+    """Stand in for the portal, answering immediately with one outcome."""
+    calls = {"count": 0}
+
+    def take_screenshot(on_uri, on_error, *, on_cancelled=None, **kwargs):
+        calls["count"] += 1
+        if outcome == "captured":
+            on_uri(detail)
+        elif outcome == "cancelled":
+            on_cancelled()
+        else:
+            on_error(detail)
+
+    monkeypatch.setattr(window_module.portal, "take_screenshot", take_screenshot)
+    monkeypatch.setattr(window_module, "_SCREENSHOT_SETTLE_MS", 0)
+    return calls
+
+
+def test_capture_hides_the_window_so_it_stays_out_of_the_shot(window, monkeypatch):
+    """A full-screen capture with the annotator on screen photographs the
+    annotator."""
+    monkeypatch.setattr(window_module, "_SCREENSHOT_SETTLE_MS", 0)
+    seen = {}
+
+    def take_screenshot(on_uri, on_error, *, on_cancelled=None, **kwargs):
+        seen["visible_during_capture"] = window.get_visible()
+        on_cancelled()
+
+    monkeypatch.setattr(window_module.portal, "take_screenshot", take_screenshot)
+    window.present()
+    pump()
+    assert window.get_visible()
+
+    window._capture_hidden(lambda uri: None, lambda message: None)
+    pump()
+    assert seen["visible_during_capture"] is False
+
+
+def test_a_cancelled_capture_brings_the_window_back(window, monkeypatch):
+    """Cancelling is how you back out of the portal's UI, and it reports
+    nothing at all - so it is the outcome that leaves a window hidden."""
+    fake_portal(monkeypatch, "cancelled")
+    window.present()
+    pump()
+
+    window._capture_hidden(lambda uri: None, lambda message: None)
+    pump()
+    assert window.get_visible()
+
+
+def test_a_failed_capture_brings_the_window_back_before_reporting(window, monkeypatch):
+    """An error dialog presented on a hidden window is never seen."""
+    fake_portal(monkeypatch, "failed", "portal said no")
+    window.present()
+    pump()
+    reported = {}
+
+    def on_error(message: str) -> None:
+        reported["visible"] = window.get_visible()
+        reported["message"] = message
+
+    window._capture_hidden(lambda uri: None, on_error)
+    pump()
+    assert reported["message"] == "portal said no"
+    assert reported["visible"] is True
+
+
+def test_a_successful_capture_brings_the_window_back(window, monkeypatch):
+    fake_portal(monkeypatch, "captured", "file:///tmp/shot.png")
+    window.present()
+    pump()
+    delivered = []
+
+    window._capture_hidden(delivered.append, lambda message: None)
+    pump()
+    assert delivered == ["file:///tmp/shot.png"]
+    assert window.get_visible()
+
+
+def test_a_window_that_was_not_visible_is_not_presented_by_a_capture(window, monkeypatch):
+    """Capturing must not yank an unmapped window onto the screen, and must
+    not wait out the settle delay it has no reason to need."""
+    calls = fake_portal(monkeypatch, "cancelled")
+    assert not window.get_visible()
+
+    window._capture_hidden(lambda uri: None, lambda message: None)
+    assert calls["count"] == 1  # called inline, with no timeout in between
+    assert not window.get_visible()
+
+
+# -- reachability ----------------------------------------------------------
+
+
+def widget_actions(widget: Gtk.Widget) -> set[str]:
+    """Action names wired to any widget under this one."""
+    found: set[str] = set()
+    getter = getattr(widget, "get_action_name", None)
+    if getter is not None:
+        name = getter()
+        if name:
+            found.add(name)
+    child = widget.get_first_child()
+    while child is not None:
+        found |= widget_actions(child)
+        child = child.get_next_sibling()
+    return found
+
+
+def test_every_window_action_is_reachable_without_a_keyboard(window):
+    """Burn In Redactions and Overwrite Original had an action, sensitivity
+    handling and no entry point at all - no menu item, no button, not even an
+    accelerator. A privacy feature nobody can invoke is not a feature, and
+    nothing about an unreachable action looks broken from the inside.
+    """
+    from ganot8.app import _ACCELERATORS
+
+    window.present()
+    pump()
+    reachable = (
+        menu_actions(window._menu)
+        | widget_actions(window)
+        | set(_ACCELERATORS)
+        # Set by the tool strip's buttons through their own stateful target.
+        | {"win.tool"}
+    )
+    declared = {f"win.{name}" for name in window.list_actions()}
+    assert declared - reachable == set()

@@ -32,6 +32,12 @@ RESPONSE_SUCCESS = 0
 RESPONSE_CANCELLED = 1
 RESPONSE_FAILED = 2
 
+#: What a finished exchange amounts to, once the response codes and the results
+#: dictionary have been read together.
+CAPTURED = "captured"
+CANCELLED = "cancelled"
+FAILED = "failed"
+
 _token_counter = 0
 
 
@@ -57,6 +63,23 @@ def request_path(connection: Gio.DBusConnection, token: str) -> str:
     return f"{PORTAL_PATH}/request/{sender}/{token}"
 
 
+def interpret_response(response: int, results: dict) -> tuple[str, str]:
+    """Reduce a portal ``Response`` signal to one outcome and its detail.
+
+    Separate from the signal handler so every branch is testable without a
+    session bus - including cancellation, which reaches the caller as "nothing
+    happened" and so is the branch most likely to be wrong unnoticed.
+    """
+    if response == RESPONSE_CANCELLED:
+        return CANCELLED, ""  # the user said no; that is not an error
+    if response != RESPONSE_SUCCESS:
+        return FAILED, "The screenshot was not taken."
+    uri = results.get("uri")
+    if not uri:
+        return FAILED, "The portal returned no image."
+    return CAPTURED, uri
+
+
 def is_available() -> bool:
     """Whether a screenshot portal is running and answering."""
     try:
@@ -79,6 +102,7 @@ def take_screenshot(
     on_uri: Callable[[str], None],
     on_error: Callable[[str], None],
     *,
+    on_cancelled: Callable[[], None] | None = None,
     parent_window: str = "",
     interactive: bool = True,
 ) -> None:
@@ -87,6 +111,11 @@ def take_screenshot(
     ``interactive`` lets the user pick an area or window - which is almost
     always what is wanted before annotating - and also means the portal shows
     its own consent UI, so no permission is taken silently.
+
+    Exactly one of ``on_uri``, ``on_error`` and ``on_cancelled`` runs, and runs
+    once. Callers undo whatever they changed for the capture's sake - hiding a
+    window, most obviously - in all three, so an outcome that reported nothing
+    would leave them undoing it never.
     """
     try:
         connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -97,22 +126,26 @@ def take_screenshot(
     token = _next_token()
     path = request_path(connection, token)
     subscription = {"id": 0}
+    settled = {"done": False}
 
-    def on_response(_conn, _sender, _path, _iface, _signal, parameters) -> None:
+    def settle(outcome: str, detail: str) -> None:
+        if settled["done"]:
+            return
+        settled["done"] = True
         if subscription["id"]:
             connection.signal_unsubscribe(subscription["id"])
             subscription["id"] = 0
+        if outcome == CAPTURED:
+            on_uri(detail)
+        elif outcome == CANCELLED:
+            if on_cancelled is not None:
+                on_cancelled()
+        else:
+            on_error(detail)
+
+    def on_response(_conn, _sender, _path, _iface, _signal, parameters) -> None:
         response, results = parameters.unpack()
-        if response == RESPONSE_CANCELLED:
-            return  # the user said no; that is not an error
-        if response != RESPONSE_SUCCESS:
-            on_error("The screenshot was not taken.")
-            return
-        uri = results.get("uri")
-        if not uri:
-            on_error("The portal returned no image.")
-            return
-        on_uri(uri)
+        settle(*interpret_response(response, results))
 
     # Subscribe before calling, so a fast portal cannot answer first.
     subscription["id"] = connection.signal_subscribe(
@@ -134,10 +167,7 @@ def take_screenshot(
         try:
             connection.call_finish(result)
         except GLib.Error as error:
-            if subscription["id"]:
-                connection.signal_unsubscribe(subscription["id"])
-                subscription["id"] = 0
-            on_error(f"The screenshot portal refused: {error.message}")
+            settle(FAILED, f"The screenshot portal refused: {error.message}")
 
     connection.call(
         PORTAL_BUS,

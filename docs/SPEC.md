@@ -376,9 +376,31 @@ whenever `replace_source` runs — every patch was cut from pixels that no longe
 
 `Adw.ApplicationWindow` → `Adw.ToolbarView`:
 
-- **Header bar:** Open ▾ (Open…, New from Screenshot, Paste), tool-independent
-  undo/redo, Export, menu (Save Project, Export As…, Overwrite Original, Burn In
-  Redactions, Copy to Clipboard, Preferences, Keyboard Shortcuts, About).
+- **Header bar:** a plain Open button, tool-independent undo/redo, a zoom group
+  (out / current level / in, where the level button zooms to fit), Export, and the
+  primary menu. The menu's sections are: **source** (Open…, New from Screenshot,
+  Paste) — the three ways an image gets in, grouped as alternatives; **file** (Save
+  Project, Export As…, Overwrite Original); **edit** (Copy to Clipboard, Select All,
+  Delete Selection, Raise, Lower); **image** (Rotate Left, Rotate Right, Burn In
+  Redactions, all three being commands that rewrite the source pixels); **view** (Zoom
+  to Fit, Actual Size, Style Sidebar); and **app** (Keyboard Shortcuts, About).
+
+  > **Correction.** This bullet previously described an "Open ▾" split button
+  > containing Open…, New from Screenshot and Paste, and a menu listing Save Project,
+  > Overwrite Original, Burn In Redactions and Preferences. None of that was built.
+  > The split button never existed; the four menu items were not in the menu; and
+  > there is no Preferences dialog or action anywhere in the source, so that entry
+  > described nothing at all and has been dropped rather than written.
+  >
+  > The consequence was worse than a documentation slip. `win.screenshot` and
+  > `win.paste` were reachable only by their accelerators, and **`win.burn-in` and
+  > `win.overwrite-original` were reachable by nothing whatsoever** — both had
+  > actions and working sensitivity handling, so from inside the code they looked
+  > wired up, and burn-in is a privacy feature (§6 rule 4). All six now have menu
+  > items. `tests/test_window.py` asserts that every action registered on the window
+  > is reachable from the menu, from a widget, or by an accelerator, which is the
+  > check whose absence let this sit unnoticed; `test_spec.py` checks accelerators
+  > against §8 but had nothing to say about what the menu contains.
 - **Left tool strip:** vertical toggle group — Select, Highlight, Redact, Underline,
   Arrow, Text, Box, Ellipse, Freehand, Badge, Crop.
 - **Centre:** `Gtk.DrawingArea` canvas in a `Gtk.ScrolledWindow`; checkerboard outside
@@ -409,6 +431,23 @@ asking; prompting on every paste would be friction on the common case of pasting
 empty window. A screenshot is deliberately left **untitled** even though the portal
 hands back a path, because that path is a temporary location and exporting beside it
 would scatter files somewhere unhelpful.
+
+**The window hides itself for the duration of a capture.** The portal grabs the screen
+as it is when asked, so without this a full-screen or area capture includes the
+annotator sitting in front of the thing being annotated. Hiding is not enough on its
+own: the unmap has to reach the compositor and be repainted before the call goes out, so
+there is a 250ms settle delay (`_SCREENSHOT_SETTLE_MS`) between the two — GNOME's hide
+animation runs around 200ms.
+
+Restoring the window is the part with a sharp edge, and it is why
+`portal.take_screenshot` guarantees that **exactly one of its three outcomes fires,
+exactly once**, and takes an `on_cancelled` callback rather than treating cancellation
+as silence. Cancelling is how a user backs out of the portal's own UI, so it is the
+likely outcome, not the exotic one — and a window hidden for a capture that then
+reports nothing stays hidden, with no way to bring it back and no quit either, since
+hiding a window is not destroying it. The window therefore hands the same single-shot
+`restore` closure to all three outcomes. Restore runs **before** the outcome is
+handled, because an `Adw.AlertDialog` presented on a hidden window is never seen.
 
 Behaviour: **a creation tool stays active after use**, so a run of annotations can be
 drawn without reselecting the tool each time — which was the single most irritating

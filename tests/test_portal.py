@@ -46,3 +46,36 @@ def test_tokens_are_unique():
 
 def test_response_codes_match_the_specification():
     assert (portal.RESPONSE_SUCCESS, portal.RESPONSE_CANCELLED, portal.RESPONSE_FAILED) == (0, 1, 2)
+
+
+@pytest.mark.parametrize(
+    "response,results,expected",
+    [
+        (portal.RESPONSE_SUCCESS, {"uri": "file:///tmp/shot.png"}, (portal.CAPTURED, "file:///tmp/shot.png")),
+        (portal.RESPONSE_CANCELLED, {}, (portal.CANCELLED, "")),
+        (portal.RESPONSE_CANCELLED, {"uri": "file:///tmp/shot.png"}, (portal.CANCELLED, "")),
+        (portal.RESPONSE_FAILED, {}, (portal.FAILED, "The screenshot was not taken.")),
+        (7, {}, (portal.FAILED, "The screenshot was not taken.")),
+    ],
+)
+def test_response_maps_to_an_outcome(response, results, expected):
+    assert portal.interpret_response(response, results) == expected
+
+
+def test_success_without_a_uri_is_a_failure_not_a_capture():
+    """A portal that answers "fine" and hands over nothing must not be treated
+    as a capture: the caller would go looking for a file that is not there."""
+    assert portal.interpret_response(portal.RESPONSE_SUCCESS, {}) == (
+        portal.FAILED,
+        "The portal returned no image.",
+    )
+
+
+def test_cancelling_is_distinguishable_from_failing():
+    """Callers hide their window for a capture and need it back afterwards, so
+    cancellation has to be an outcome of its own rather than silence."""
+    cancelled, _ = portal.interpret_response(portal.RESPONSE_CANCELLED, {})
+    failed, _ = portal.interpret_response(portal.RESPONSE_FAILED, {})
+    assert cancelled == portal.CANCELLED
+    assert failed == portal.FAILED
+    assert cancelled != failed

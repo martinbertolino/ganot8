@@ -40,6 +40,12 @@ log = logging.getLogger(__name__)
 #: ActionRow and friends - supplies no padding of its own.
 _ROW_PADDING = 12
 
+#: How long to leave the window hidden before asking the portal to capture.
+#: The portal's interactive UI works from a frame grabbed when the call is
+#: made, so the compositor has to have repainted without us by then - the
+#: unmap alone is not enough, and GNOME's hide animation runs around 200ms.
+_SCREENSHOT_SETTLE_MS = 250
+
 #: Style attributes the sidebar has a widget for.
 _REDACT_STYLE_LABELS = ("Solid block", "Blur", "Pixelate")
 
@@ -176,9 +182,18 @@ class Window(Adw.ApplicationWindow):
         header.pack_end(self._export_button)
 
         menu = Gio.Menu()
+        # The three ways an image gets in, grouped because they are
+        # alternatives to each other. Screenshot and Paste were reachable only
+        # by their accelerators before, which is no way to find a feature.
+        source_section = Gio.Menu()
+        source_section.append("Open…", "win.open")
+        source_section.append("New from Screenshot", "win.screenshot")
+        source_section.append("Paste", "win.paste")
+        menu.append_section(None, source_section)
         file_section = Gio.Menu()
-        file_section.append("Open…", "win.open")
+        file_section.append("Save Project", "win.save-project")
         file_section.append("Export As…", "win.export-as")
+        file_section.append("Overwrite Original", "win.overwrite-original")
         menu.append_section(None, file_section)
         edit_section = Gio.Menu()
         edit_section.append("Copy to Clipboard", "win.copy")
@@ -190,6 +205,9 @@ class Window(Adw.ApplicationWindow):
         image_section = Gio.Menu()
         image_section.append("Rotate Left", "win.rotate-left")
         image_section.append("Rotate Right", "win.rotate-right")
+        # Grouped with the rotations because it is the same kind of thing: it
+        # rewrites the source pixels as one undoable command.
+        image_section.append("Burn In Redactions", "win.burn-in")
         menu.append_section(None, image_section)
         view_section = Gio.Menu()
         view_section.append("Zoom to Fit", "win.zoom-fit")
@@ -201,6 +219,7 @@ class Window(Adw.ApplicationWindow):
         app_section.append(f"About {APP_NAME}", "app.about")
         menu.append_section(None, app_section)
 
+        self._menu = menu
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic")
         menu_button.set_tooltip_text("Main menu")
         menu_button.set_menu_model(menu)
@@ -1047,9 +1066,55 @@ class Window(Adw.ApplicationWindow):
                 loaded.image, name="Screenshot", loader="portal"
             )
 
-        portal.take_screenshot(
+        self._capture_hidden(
             captured, lambda message: self._show_error("Screenshot failed", message)
         )
+
+    def _capture_hidden(self, on_uri, on_error) -> None:
+        """Take the window off screen, capture, and put it back.
+
+        Without this Ganot8 photographs itself: the portal grabs the screen as
+        it is when asked, so a full-screen or area capture would include the
+        annotator sitting in front of the thing being annotated.
+
+        Restoring is a single-shot closure handed to all three outcomes rather
+        than only to success. A window hidden for a capture the user then
+        cancels - the common case, since cancelling is how you back out of the
+        portal's UI - would otherwise stay hidden with no way to bring it back,
+        and the application does not quit, because hiding a window is not
+        destroying it.
+        """
+        was_visible = self.get_visible()
+        restored = False
+
+        def restore() -> None:
+            nonlocal restored
+            if restored:
+                return
+            restored = True
+            if was_visible:
+                self.present()
+
+        def succeeded(uri: str) -> None:
+            # Restore first: the handler may want to show an error dialog, and
+            # one presented on a hidden window is never seen.
+            restore()
+            on_uri(uri)
+
+        def failed(message: str) -> None:
+            restore()
+            on_error(message)
+
+        def ask() -> bool:
+            portal.take_screenshot(succeeded, failed, on_cancelled=restore)
+            return GLib.SOURCE_REMOVE
+
+        if not was_visible:
+            ask()
+            return
+
+        self.set_visible(False)
+        GLib.timeout_add(_SCREENSHOT_SETTLE_MS, ask)
 
     # -- projects --------------------------------------------------------
 
