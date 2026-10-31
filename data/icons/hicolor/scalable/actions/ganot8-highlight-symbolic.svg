@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <g fill="#222222">
+    <!-- marker body, angled like a held pen -->
+    <path d="M10.94 1.28a1.3 1.3 0 0 1 1.84 0l1.94 1.94a1.3 1.3 0 0 1 0 1.84L10.6 8.9 7.1 5.4z"/>
+    <!-- nib and the wedge of ink it leaves -->
+    <path d="M6.16 6.34 9.66 9.84l-2.3 2.3a1 1 0 0 1-.43.25l-3.2.9a.6.6 0 0 1-.74-.74l.9-3.2a1 1 0 0 1 .25-.42z"/>
+    <!-- the laid-down stroke of highlighter -->
+    <rect x="1" y="13.9" width="14" height="1.8" rx=".9"/>
+  </g>
+</svg>

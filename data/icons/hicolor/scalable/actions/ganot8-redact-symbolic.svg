@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <g fill="#222222">
+    <!-- a line of text above, a shorter one below -->
+    <rect x="1" y="2.1" width="14" height="1.7" rx=".85"/>
+    <rect x="1" y="12.2" width="8.5" height="1.7" rx=".85"/>
+    <!-- the solid bar covering the line between them -->
+    <rect x="1" y="5.9" width="14" height="4.4" rx=".5"/>
+  </g>
+</svg>

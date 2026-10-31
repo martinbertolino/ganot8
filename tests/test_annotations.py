@@ -146,3 +146,18 @@ def test_empty_rect_draws_nothing():
     surface = new_surface(10, 10)
     Box(rect=Rect(5, 5, 0, 0)).draw(cairo.Context(surface))
     assert set(surface_to_pil(surface).get_flattened_data()) == {(0, 0, 0, 0)}
+
+
+def test_filled_box_hides_the_line_width_control():
+    """draw() fills or strokes, never both, so width is inert while filled."""
+    from ganot8.annotations import STYLE_STROKE_WIDTH
+
+    assert STYLE_STROKE_WIDTH not in Box(filled=True).visible_style_properties()
+    assert STYLE_STROKE_WIDTH in Box(filled=False).visible_style_properties()
+
+
+def test_visible_style_properties_defaults_to_the_declared_set():
+    from ganot8.annotations import Arrow
+
+    arrow = Arrow()
+    assert arrow.visible_style_properties() == arrow.style_properties

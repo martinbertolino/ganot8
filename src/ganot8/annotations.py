@@ -145,6 +145,15 @@ class Annotation:
             self.opacity = float(data["opacity"])
         self.geometry_from_dict(data)
 
+    def visible_style_properties(self) -> tuple[str, ...]:
+        """Which style rows apply *right now*.
+
+        Defaults to :attr:`style_properties`. A kind overrides this when a
+        setting makes another one inert - showing a control that does nothing
+        is worse than not showing it.
+        """
+        return self.style_properties
+
     # -- undo support ----------------------------------------------------
 
     def state(self) -> dict[str, Any]:
@@ -234,6 +243,13 @@ class Box(RectAnnotation):
             return
         self._set_stroke(cr)
         cr.stroke()
+
+    def visible_style_properties(self) -> tuple[str, ...]:
+        # draw() either fills or strokes, never both, so line width has no
+        # effect at all while the box is filled.
+        if self.filled:
+            return tuple(p for p in self.style_properties if p != STYLE_STROKE_WIDTH)
+        return self.style_properties
 
     def hit_test(self, point: Point, tolerance: float) -> bool:
         rect = self.rect.normalized()

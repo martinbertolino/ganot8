@@ -13,8 +13,12 @@ from ganot8.document import Document
 from ganot8.geometry import Point, Rect
 from ganot8.imageio.loader import LoadedImage
 
-if not Gtk.init_check():
-    pytest.skip("no display available for GTK widgets", allow_module_level=True)
+from support import SKIP_REASON, display_available  # noqa: E402
+
+if not display_available():
+    pytest.skip(SKIP_REASON, allow_module_level=True)
+
+Gtk.init()
 
 from ganot8.canvas import Canvas  # noqa: E402
 

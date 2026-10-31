@@ -243,9 +243,17 @@ class Canvas(Gtk.DrawingArea):
         return self.style_for(self.tool_name)
 
     def current_style_properties(self) -> tuple[str, ...]:
-        """Which style rows apply to what the active tool creates."""
+        """Which style rows apply to what the active tool would create next.
+
+        Built from a sample annotation carrying the current style, so a setting
+        that makes another control inert hides it before anything is drawn.
+        """
         annotation_type = getattr(self._tool, "annotation_type", None)
-        return annotation_type.style_properties if annotation_type is not None else ()
+        if annotation_type is None:
+            return ()
+        sample = annotation_type()
+        self.apply_style_to(sample)
+        return sample.visible_style_properties()
 
     def _default_style_for(self, name: str) -> dict:
         style = dict(FALLBACK_STYLE)

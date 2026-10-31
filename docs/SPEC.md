@@ -118,6 +118,7 @@ ganot8/
 ├── requirements.txt            # pinned PyPI deps
 ├── pyproject.toml              # package metadata, pytest config
 ├── run.sh                      # bootstraps .venv if absent, then execs it
+├── run-tests.sh                # runs the suite; refuses to hide skipped widget tests
 ├── .venv/                      # git-ignored
 ├── docs/SPEC.md                # this document
 ├── devtools/
@@ -136,6 +137,7 @@ ganot8/
 │   ├── history.py              # Add/Remove/StateChange/Reorder + undo stack
 │   ├── render.py               # shared draw path: canvas and exporter both call it
 │   ├── surfaces.py             # PIL <-> Cairo ARGB32 bridge (premultiply/un-premultiply)
+│   ├── resources.py            # registers the bundled icon theme path
 │   ├── tools/
 │   │   ├── base.py             # Tool interface + registry
 │   │   ├── select.py           # pick, move, resize, marquee, nudge, double-click
@@ -155,8 +157,9 @@ ganot8/
 │   ├── portal.py               # (phase 6) org.freedesktop.portal.Screenshot
 │   ├── clipboard.py            # (phase 6) paste texture in, copy flattened out
 │   └── settings.py             # (phase 6) GSettings wrapper with in-memory fallback
-├── data/                       # (phase 6) .desktop, gschema, icons
-└── tests/                      # see section 11 for the display-free / display split
+├── data/icons/hicolor/scalable/actions/   # bundled symbolic icons
+├── data/                       # (phase 6) .desktop, gschema
+└── tests/                      # see section 11; support.py holds the shared helpers
 ```
 
 Entries marked with a phase do not exist yet. `tools/__init__.py` lists the creation
@@ -425,14 +428,21 @@ The suite splits in two, and the distinction matters for CI:
 - **Display-free** (141 tests as of phase 3) — pure logic and image handling, runnable anywhere:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
-  `test_exporter`, `test_project`, `test_burn_in`, `test_spec`.
-- **Needs a display** (101 tests as of phase 3) — `test_tools`, `test_core_tools`, `test_window`,
-  `test_centering`. These construct real GTK widgets, and `test_centering` presents a
-  real toplevel and waits for genuine allocation cycles. Each module calls
-  `Gtk.init_check()` and **skips the whole module** when there is no display, so on a
-  headless runner they vanish silently rather than failing — 40% of the suite would be
-  skipped without anyone noticing. Install `xorg-x11-server-Xvfb` and run under
-  `xvfb-run` to actually execute them.
+  `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_spec`.
+- **Needs a display** (101 tests as of phase 4) — `test_tools`, `test_core_tools`,
+  `test_window`, `test_centering`. These construct real GTK widgets, and
+  `test_centering` presents a real toplevel and drives genuine allocation cycles.
+  `./run-tests.sh` uses `xvfb-run` when there is no display, and `--strict` refuses to
+  run a partial suite at all. Install `xorg-x11-server-Xvfb` to execute them headless.
+
+  > **Correction.** An earlier version of this section said these modules "skip
+  > themselves rather than fail". That was wrong, and wrong in the dangerous direction.
+  > The guard was `Gtk.init_check()`, which **returns `True` with no display**, and in
+  > one observed run **segfaulted the interpreter** before returning at all — no
+  > `try`/`except` can catch that. Headless, the modules errored or crashed; they did
+  > not skip. The guard is now `support.display_available()`, which looks for the
+  > display socket and never touches GTK. Verified headless: 182 passed, 4 modules
+  > skipped, no crash.
 
 - **What the display-free tests cover:** PIL↔Cairo round-trip
   fidelity; geometry and hit-testing;
@@ -454,6 +464,15 @@ The suite splits in two, and the distinction matters for CI:
   even at `ZOOM_MIN`) waits further still, until each adjustment's `upper` matches the
   content size actually requested — centring against a stale `upper` lands at the wrong
   offset and is then clamped to the far edge.
+- **Forcing layout:** `support.force_layout()` allocates the toplevel at its current
+  size to run a layout pass synchronously. Without it the widget tests are at the mercy
+  of the compositor: a window that is mapped but never *presented* — the normal case in
+  a test run, since the terminal keeps focus — receives no frame callbacks, so its
+  `GdkFrameClock` stalls at frame 1 and queued resizes are never processed. Measured: a
+  canvas reporting `content_width = 569` stayed allocated at 2400 indefinitely, and the
+  centring tests failed for reasons unrelated to the code. `devtools/shoot_ui.py` needs
+  the same treatment, and disables stack transitions since animations are driven by that
+  same stalled clock.
 - **Spec drift:** `tests/test_spec.py` checks this document against the code — the
   section 4 kind table against the annotation registry, the section 8 tool keys against
   the bound accelerators, the section 3 tree against the filesystem (phase-tagged files
@@ -497,30 +516,6 @@ stay translatable via `_()` from day one, but no catalogues yet).
 Things that are in scope but unresolved. Decisions get written into the section they
 belong to; this is only for what is still open.
 
-### Two tool icons do not communicate their tool
-
-Highlight uses `color-select-symbolic` (an eyedropper) and Redact uses
-`checkbox-checked-symbolic` (a ticked box). Both resolve in the Adwaita theme, so the
-icon-existence test in section 11 passes — that test proves an icon *renders*, not that
-it *means* anything, and these two are the counter-example. Adwaita ships no marker or
-redaction glyph. Either pick closer stock icons or draw a few custom symbolic SVGs into
-`data/icons/`, which phase 6 creates anyway. Found only once `devtools/shoot_ui.py`
-made the real UI inspectable.
-
-### No CI, and 101 tests would skip silently on one
-
-There is no CI configuration. Adding one without `xorg-x11-server-Xvfb` and `xvfb-run`
-would give a green build that exercises none of the widget code, because the four
-display-dependent modules skip themselves rather than fail (section 11).
-
-### Line Width does nothing for a filled Box
-
-`Box.draw` either fills or strokes, never both, so with `filled` now defaulting to on
-the sidebar's Line Width row has no visible effect on a default box. The row is shown
-because `STYLE_STROKE_WIDTH` is in `Box.style_properties`, which is still correct for
-the un-filled case. Either draw a fill *and* an outline, or hide the row while `filled`
-is set.
-
 ### Adw.Banner warns about its own layout when the window is resized
 
 Resizing the window while the banner is visible intermittently logs
@@ -531,9 +526,23 @@ button, and the inconsistency is inside libadwaita's own box — the only inputs
 title string and a button label. No visible breakage, console noise only. Worth a
 libadwaita bug report rather than a workaround here.
 
-### Closing the window discards unsaved annotations silently
+### No CI pipeline yet
 
-There is no unsaved-changes prompt. `Document.dirty` is tracked and `save_project`
-clears it, but nothing consults it on close, so quitting with annotations that were
-never exported or saved loses them without a word. Not in any phase's scope so far;
-it belongs with the phase 6 window/session work.
+`./run-tests.sh --strict` is the piece that was missing — it exits 2 rather than
+reporting success on a partial suite — but nothing runs it automatically. A pipeline
+needs `xorg-x11-server-Xvfb` installed on the runner, or 101 tests go unrun.
+
+### Resolved
+
+- **Tool icons that said the wrong thing** — Highlight, Redact and Select now use
+  symbolic icons drawn for them in `data/icons/`, registered through
+  `resources.install_icons()`. Verified by rendering all seven side by side.
+- **Line Width doing nothing for a filled Box** — `Annotation.visible_style_properties()`
+  lets a kind drop a control its current state makes inert; `Box` drops line width while
+  filled.
+- **Closing discarding unsaved annotations silently** — the window now intercepts
+  `close-request` and offers Save Project / Discard / Cancel. Exporting deliberately does
+  not clear the flag: an exported image is flattened pixels and cannot be reopened for
+  editing, so the annotations really are still unsaved, and the dialog says so.
+- **Widget tests vanishing on a headless runner** — see the correction in section 11;
+  they were never skipping cleanly in the first place.

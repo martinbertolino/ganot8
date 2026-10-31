@@ -18,6 +18,7 @@ from .annotations import (
     STYLE_STROKE_WIDTH,
     STYLE_WAVY,
 )
+from . import resources
 from .canvas import Canvas
 from .dialogs import ExportOptionsDialog
 from .document import Document
@@ -70,10 +71,16 @@ class Window(Adw.ApplicationWindow):
         self._text_cancelled = False
         self._export_format = "PNG"
         self._export_quality = 92
+        #: Set once the user has agreed to lose unsaved work, so the second
+        #: close attempt is not intercepted again.
+        self._force_close = False
+        self._after_save = None
 
+        resources.install_icons()
         self._build_ui()
         self._install_actions()
         self._install_drop_target()
+        self.connect("close-request", self._on_close_request)
         self._update_sensitivity()
         self._sync_style_controls()
 
@@ -575,7 +582,7 @@ class Window(Adw.ApplicationWindow):
             if subjects:
                 reference = subjects[0]
                 values = {key: getattr(reference, key, None) for key in _STYLE_WIDGET_KEYS}
-                properties = reference.style_properties
+                properties = reference.visible_style_properties()
                 count = len(subjects)
                 kinds = {s.label for s in subjects}
                 what = next(iter(kinds)) if len(kinds) == 1 else "annotation"
@@ -653,6 +660,8 @@ class Window(Adw.ApplicationWindow):
 
     def _on_filled_changed(self, row: Adw.SwitchRow, _param) -> None:
         self._apply_style("filled", bool(row.get_active()), "Change Fill")
+        # Filling hides Line Width, so the rows have to be re-evaluated.
+        self._sync_style_controls()
 
     def _on_wavy_changed(self, row: Adw.SwitchRow, _param) -> None:
         self._apply_style("wavy", bool(row.get_active()), "Change Underline")
@@ -813,6 +822,11 @@ class Window(Adw.ApplicationWindow):
     # -- projects --------------------------------------------------------
 
     def _action_save_project(self, *_args) -> None:
+        self._save_project_then(None)
+
+    def _save_project_then(self, on_saved) -> None:
+        """Save, then run ``on_saved`` if (and only if) it actually succeeded."""
+        self._after_save = on_saved
         if self._document is None:
             return
         suggested = self._document.project_path or project.default_project_path(
@@ -836,10 +850,12 @@ class Window(Adw.ApplicationWindow):
         try:
             file = dialog.save_finish(result)
         except GLib.Error as error:
+            self._after_save = None
             if not error.matches(Gtk.dialog_error_quark(), Gtk.DialogError.DISMISSED):
                 self._show_error("Could not save project", error.message)
             return
         if file is None or not file.get_path():
+            self._after_save = None
             return
 
         target = Path(file.get_path())
@@ -867,6 +883,7 @@ class Window(Adw.ApplicationWindow):
         try:
             written = self._document.save_project(target)
         except Exception as error:
+            self._after_save = None
             log.exception("saving project to %s failed", target)
             self._show_error("Could not save project", f"{target.name}: {error}")
             return
@@ -876,6 +893,10 @@ class Window(Adw.ApplicationWindow):
         toast.set_button_label("Show in Files")
         toast.connect("button-clicked", lambda *_: self._reveal(written))
         self._toasts.add_toast(toast)
+
+        callback, self._after_save = self._after_save, None
+        if callback is not None:
+            callback()
 
     # -- destructive actions ---------------------------------------------
 
@@ -1044,6 +1065,53 @@ class Window(Adw.ApplicationWindow):
             self._canvas.commit_text_edit(text)
         popover.unparent()
         self._text_popover = None
+
+    # -- closing ---------------------------------------------------------
+
+    def has_unsaved_work(self) -> bool:
+        """True if closing now would lose annotations.
+
+        Exporting deliberately does not count as saving: an exported image is
+        flattened pixels and cannot be reopened for editing, so the annotations
+        really are still unsaved.
+        """
+        return self._document is not None and self._document.dirty
+
+    def _on_close_request(self, *_args) -> bool:
+        if self._force_close or not self.has_unsaved_work():
+            return Gdk.EVENT_PROPAGATE  # let the window close
+        self._confirm_discard()
+        return Gdk.EVENT_STOP
+
+    def _confirm_discard(self) -> None:
+        name = self._document.display_name
+        dialog = Adw.AlertDialog(
+            heading=f"Save changes to {name}?",
+            body=(
+                "Your annotations have not been saved to a project.\n\n"
+                "Exported images are flattened and cannot be edited again, so "
+                "exporting does not preserve them."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard")
+        dialog.add_response("save", "Save Project\u2026")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_discard_response)
+        dialog.present(self)
+
+    def _on_discard_response(self, _dialog, response: str) -> None:
+        if response == "discard":
+            self.close_without_prompting()
+        elif response == "save":
+            self._save_project_then(self.close_without_prompting)
+
+    def close_without_prompting(self) -> None:
+        self._force_close = True
+        self.close()
 
     # -- feedback --------------------------------------------------------
 

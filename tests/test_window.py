@@ -16,8 +16,12 @@ from ganot8.document import Document
 from ganot8.geometry import Rect
 from ganot8.imageio.loader import LoadedImage
 
-if not Gtk.init_check():
-    pytest.skip("no display available for GTK widgets", allow_module_level=True)
+from support import SKIP_REASON, display_available  # noqa: E402
+
+if not display_available():
+    pytest.skip(SKIP_REASON, allow_module_level=True)
+
+Gtk.init()
 
 Adw.init()
 
@@ -409,3 +413,77 @@ def test_export_uses_the_chosen_quality(window, tmp_path):
 
 def test_save_project_action_is_available_with_a_document(window):
     assert enabled(window, "save-project")
+
+
+# -- closing with unsaved work -------------------------------------------
+
+
+def test_a_fresh_document_has_nothing_to_lose(window):
+    assert not window.has_unsaved_work()
+
+
+def test_annotating_creates_unsaved_work(window):
+    from ganot8.history import AddAnnotations
+
+    window.document.history.push(AddAnnotations(window.document, [add_box(window)]))
+    assert window.has_unsaved_work()
+
+
+def test_close_is_blocked_while_work_is_unsaved(window):
+    from ganot8.history import AddAnnotations
+
+    window.document.history.push(AddAnnotations(window.document, [add_box(window)]))
+    # True means "handled": the window must not close yet.
+    assert window._on_close_request() is True
+
+
+def test_close_is_allowed_once_the_project_is_saved(window, tmp_path):
+    from ganot8.history import AddAnnotations
+
+    window.document.history.push(AddAnnotations(window.document, [add_box(window)]))
+    window.document.save_project(tmp_path / "saved.ganot8")
+    assert not window.has_unsaved_work()
+    assert window._on_close_request() is False
+
+
+def test_discarding_lets_the_next_close_through(window):
+    from ganot8.history import AddAnnotations
+
+    window.document.history.push(AddAnnotations(window.document, [add_box(window)]))
+    window._on_discard_response(None, "discard")
+    assert window._force_close
+    assert window._on_close_request() is False
+
+
+def test_cancelling_the_prompt_changes_nothing(window):
+    from ganot8.history import AddAnnotations
+
+    window.document.history.push(AddAnnotations(window.document, [add_box(window)]))
+    window._on_discard_response(None, "cancel")
+    assert not window._force_close
+    assert window.has_unsaved_work()
+
+
+def test_exporting_does_not_count_as_saving(window, tmp_path):
+    """An export is flattened pixels; the annotations are still unsaved."""
+    from ganot8.history import AddAnnotations
+
+    window.document.history.push(AddAnnotations(window.document, [add_box(window)]))
+    window._write_export(tmp_path / "out.png")
+    assert window.has_unsaved_work()
+
+
+def test_a_window_with_no_document_closes_freely():
+    assert Window()._on_close_request() is False
+
+
+# -- conditional style rows ----------------------------------------------
+
+
+def test_line_width_row_hides_for_a_filled_box(window):
+    filled = add_box(window, filled=True)
+    window.canvas.set_selection([filled])
+    assert not window._width_row.get_visible()
+
+    window._filled_row.set_active(False)
+    assert window._width_row.get_visible()

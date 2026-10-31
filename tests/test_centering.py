@@ -22,9 +22,12 @@ from PIL import Image
 from ganot8 import gi_init  # noqa: F401
 from gi.repository import Adw, GLib, Gtk
 
-if not Gtk.init_check():
-    pytest.skip("no display available for GTK widgets", allow_module_level=True)
+from support import SKIP_REASON, display_available, force_layout  # noqa: E402
 
+if not display_available():
+    pytest.skip(SKIP_REASON, allow_module_level=True)
+
+Gtk.init()
 Adw.init()
 
 from ganot8.window import Window  # noqa: E402
@@ -64,9 +67,17 @@ def make_image(tmp_path, name: str, size: tuple[int, int]):
 
 
 def settle(window) -> None:
-    """Wait for the canvas to be allocated, then let the deferred passes run."""
+    """Let the deferred fit and centring passes complete.
+
+    Each idle pass is followed by a forced layout, because the frame clock of
+    an unpresented window never ticks on its own (see support.force_layout).
+    Two rounds are needed: the fit changes the content size, and the centring
+    can only run once the adjustments reflect it.
+    """
     assert pump(lambda: window._scroller.get_width() > 1), "canvas never allocated"
-    pump(lambda: False, timeout=0.3)
+    for _ in range(3):
+        pump(lambda: False, timeout=0.05)
+        force_layout(window)
 
 
 def axes(window):

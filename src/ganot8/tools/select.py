@@ -33,7 +33,7 @@ class SelectTool(Tool):
 
     name: ClassVar[str] = "select"
     label: ClassVar[str] = "Select"
-    icon_name: ClassVar[str] = "edit-select-symbolic"
+    icon_name: ClassVar[str] = "ganot8-select-symbolic"
     accelerator: ClassVar[str] = "s"
     tooltip: ClassVar[str] = "Select, move and resize annotations (S)"
     cursor: ClassVar[str] = "default"

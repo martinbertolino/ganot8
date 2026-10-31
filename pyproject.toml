@@ -6,7 +6,7 @@ requires-python = ">=3.14"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 filterwarnings = [
     # PyGObject's asyncio integration, not ours; noisy under Python 3.14.
     "ignore:'asyncio.get_event_loop_policy' is deprecated:DeprecationWarning:gi.events",

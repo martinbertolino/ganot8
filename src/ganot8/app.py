@@ -9,7 +9,7 @@ from pathlib import Path
 from . import gi_init  # noqa: F401
 from gi.repository import Adw, Gdk, Gio, Gtk
 
-from . import APP_ID, APP_NAME, __version__
+from . import APP_ID, APP_NAME, __version__, resources
 from .window import Window
 
 log = logging.getLogger(__name__)
@@ -69,6 +69,7 @@ class Application(Adw.Application):
         Adw.Application.do_startup(self)
         self._install_actions()
         self._install_stylesheet()
+        resources.install_icons()
 
     def do_activate(self) -> None:
         self._present_window()
