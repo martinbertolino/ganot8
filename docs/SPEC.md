@@ -389,6 +389,11 @@ currently unassigned to any phase; fold it into phase 6.
 
 ## 9. Settings (GSettings, schema `io.github.martinb.Ganot8`)
 
+The shared default line width is **7px**. A hairline looks fine while annotating at
+1:1 and then disappears once the screenshot is scaled down into a document or a chat,
+which is where these images end up. `Arrow.head_scale` stays at 4.0, so a head keeps
+pace with the line rather than being left behind by it.
+
 Style is remembered **per tool** (`Canvas.style_for(name)`), seeded from each
 annotation kind's own dataclass defaults — so Highlight starts translucent yellow while
 Redact starts opaque black, without either having to be special-cased in the UI.
@@ -425,11 +430,11 @@ Each phase ends with a runnable app and is approved separately.
 
 The suite splits in two, and the distinction matters for CI:
 
-- **Display-free** (141 tests as of phase 3) — pure logic and image handling, runnable anywhere:
+- **Display-free** (195 tests as of phase 4) — pure logic and image handling, runnable anywhere:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_spec`.
-- **Needs a display** (101 tests as of phase 4) — `test_tools`, `test_core_tools`,
+- **Needs a display** (124 tests as of phase 4) — `test_tools`, `test_core_tools`,
   `test_window`, `test_centering`. These construct real GTK widgets, and
   `test_centering` presents a real toplevel and drives genuine allocation cycles.
   `./run-tests.sh` uses `xvfb-run` when there is no display, and `--strict` refuses to
@@ -530,7 +535,7 @@ libadwaita bug report rather than a workaround here.
 
 `./run-tests.sh --strict` is the piece that was missing — it exits 2 rather than
 reporting success on a partial suite — but nothing runs it automatically. A pipeline
-needs `xorg-x11-server-Xvfb` installed on the runner, or 101 tests go unrun.
+needs `xorg-x11-server-Xvfb` installed on the runner, or 124 tests go unrun.
 
 ### Resolved
 

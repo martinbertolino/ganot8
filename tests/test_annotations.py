@@ -161,3 +161,18 @@ def test_visible_style_properties_defaults_to_the_declared_set():
 
     arrow = Arrow()
     assert arrow.visible_style_properties() == arrow.style_properties
+
+
+def test_default_line_width_is_thick_enough_to_read_on_a_screenshot():
+    """A hairline disappears once a screenshot is scaled down for sharing."""
+    from ganot8.annotations import Annotation
+
+    assert Annotation().stroke_width == 7.0
+    assert Box().stroke_width == 7.0
+
+
+def test_arrow_head_scales_with_the_default_width():
+    """head_scale stays 4x, so the head keeps pace with a thicker line."""
+    from ganot8.annotations import Arrow
+
+    assert Arrow().head_length == 28.0

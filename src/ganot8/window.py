@@ -28,6 +28,10 @@ from .imageio.loader import UnsupportedImageError, load
 
 log = logging.getLogger(__name__)
 
+#: Inset for content placed directly in an Adw.PreferencesRow, which - unlike
+#: ActionRow and friends - supplies no padding of its own.
+_ROW_PADDING = 12
+
 #: Style attributes the sidebar has a widget for.
 _STYLE_WIDGET_KEYS = (
     STYLE_COLOR,
@@ -269,7 +273,7 @@ class Window(Adw.ApplicationWindow):
 
         self._width_row = Adw.SpinRow(
             title="Line Width",
-            adjustment=Gtk.Adjustment(value=3, lower=1, upper=40, step_increment=1),
+            adjustment=Gtk.Adjustment(value=7, lower=1, upper=40, step_increment=1),
         )
         self._width_row.connect("notify::value", self._on_width_changed)
         self._style_group.add(self._width_row)
@@ -303,44 +307,45 @@ class Window(Adw.ApplicationWindow):
             description="Which annotation is drawn on top where they overlap",
         )
         page.add(arrange)
-        arrange.add(
-            self._button_row(
+        self._arrange_row = self._button_row(
+            (
                 (
-                    (
-                        "Raise",
-                        "win.raise-annotation",
-                        "Move one step towards the front (Ctrl+Page Up)",
-                        None,
-                    ),
-                    (
-                        "Lower",
-                        "win.lower-annotation",
-                        "Move one step towards the back (Ctrl+Page Down)",
-                        None,
-                    ),
-                )
+                    "Raise",
+                    "win.raise-annotation",
+                    "Move one step towards the front (Ctrl+Page Up)",
+                    None,
+                ),
+                (
+                    "Lower",
+                    "win.lower-annotation",
+                    "Move one step towards the back (Ctrl+Page Down)",
+                    None,
+                ),
             )
         )
+        arrange.add(self._arrange_row)
 
         selection = Adw.PreferencesGroup(title="Selection")
         page.add(selection)
-        selection.add(
-            self._button_row(
+        self._delete_row = self._button_row(
+            (
                 (
-                    (
-                        "Delete",
-                        "win.delete",
-                        "Remove the selected annotations (Delete)",
-                        "destructive-action",
-                    ),
-                )
+                    "Delete",
+                    "win.delete",
+                    "Remove the selected annotations (Delete)",
+                    "destructive-action",
+                ),
             )
         )
+        selection.add(self._delete_row)
 
         self._selection_label = Gtk.Label(xalign=0)
         self._selection_label.add_css_class("dim-label")
         self._selection_label.add_css_class("caption")
-        self._selection_label.set_margin_top(10)
+        self._selection_label.set_margin_top(2)
+        self._selection_label.set_margin_bottom(_ROW_PADDING)
+        self._selection_label.set_margin_start(_ROW_PADDING)
+        self._selection_label.set_margin_end(_ROW_PADDING)
         self._selection_label.set_wrap(True)
         info = Adw.PreferencesRow(activatable=False)
         info.set_child(self._selection_label)
@@ -349,9 +354,20 @@ class Window(Adw.ApplicationWindow):
 
     @staticmethod
     def _button_row(entries) -> Adw.PreferencesRow:
-        """A row of equal-width buttons, each wired to an action."""
+        """A row of equal-width buttons, each wired to an action.
+
+        The margins are not decoration. ``Adw.PreferencesRow`` is a plain list
+        row and adds no padding of its own, unlike the ActionRow/SpinRow/
+        SwitchRow used in the Style group, so without them the buttons sit
+        flush against the card border. 12px matches the padding Adwaita gives
+        those rows, so these line up with the controls above rather than
+        running wider than them.
+        """
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, homogeneous=True)
-        box.set_margin_top(6)
+        box.set_margin_top(_ROW_PADDING)
+        box.set_margin_bottom(_ROW_PADDING)
+        box.set_margin_start(_ROW_PADDING)
+        box.set_margin_end(_ROW_PADDING)
         for label, action, tooltip, css_class in entries:
             button = Gtk.Button(label=label)
             button.set_action_name(action)

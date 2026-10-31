@@ -87,7 +87,9 @@ class Annotation:
     style_properties: ClassVar[tuple[str, ...]] = (STYLE_COLOR, STYLE_STROKE_WIDTH)
 
     color: RGBA = (0.90, 0.16, 0.16, 1.0)
-    stroke_width: float = 3.0
+    #: 7px rather than a hairline: an annotation has to read clearly on a
+    #: screenshot that may later be scaled down in a document or chat.
+    stroke_width: float = 7.0
     opacity: float = 1.0
 
     # -- geometry (subclasses implement) ---------------------------------

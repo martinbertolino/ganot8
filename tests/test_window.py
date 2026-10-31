@@ -133,7 +133,7 @@ def test_changing_style_with_a_selection_edits_it_undoably(window):
     assert annotation.stroke_width == pytest.approx(12.0)
     assert window.document.history.undo_label == "Change Width"
     window.lookup_action("undo").activate(None)
-    assert annotation.stroke_width == pytest.approx(3.0)
+    assert annotation.stroke_width == pytest.approx(7.0)
 
 
 def test_changing_style_without_a_selection_sets_the_default(window):
@@ -487,3 +487,22 @@ def test_line_width_row_hides_for_a_filled_box(window):
 
     window._filled_row.set_active(False)
     assert window._width_row.get_visible()
+
+
+def test_sidebar_buttons_are_inset_from_the_card_edge(window):
+    """Adw.PreferencesRow adds no padding of its own, unlike ActionRow.
+
+    Without explicit margins the Raise/Lower/Delete buttons sit flush against
+    the card border, unlike every control in the Style group above them.
+    """
+    for row in (window._arrange_row, window._delete_row):
+        box = row.get_child()
+        assert box.get_margin_start() >= 8
+        assert box.get_margin_end() >= 8
+        assert box.get_margin_bottom() >= 8
+        assert box.get_margin_top() >= 8
+
+
+def test_selection_summary_is_inset_too(window):
+    assert window._selection_label.get_margin_start() >= 8
+    assert window._selection_label.get_margin_end() >= 8

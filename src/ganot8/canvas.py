@@ -41,7 +41,7 @@ _SELECT_RGBA = (0.21, 0.52, 0.89, 1.0)
 #: something coherent to show.
 FALLBACK_STYLE: dict[str, object] = {
     "color": (0.90, 0.16, 0.16, 1.0),
-    "stroke_width": 3.0,
+    "stroke_width": 7.0,
     "opacity": 1.0,
 }
 

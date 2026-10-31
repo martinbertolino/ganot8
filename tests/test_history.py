@@ -98,7 +98,7 @@ def test_state_change_round_trips_geometry_and_style():
 
     document.history.undo()
     assert annotation.rect == Rect(0, 0, 10, 10)
-    assert annotation.stroke_width == 3.0
+    assert annotation.stroke_width == 7.0
     document.history.redo()
     assert annotation.rect == Rect(5, 5, 10, 10)
     assert annotation.stroke_width == 11.0
