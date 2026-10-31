@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 3 complete · **Last updated:** 2026-10-31
+**Status:** Phase 3 complete; spec reconciled against the code · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -116,42 +116,50 @@ them as wheels into the build isolation environment.
 ganot8/
 ├── .python-version             # 3.14.8  (pyenv, committed)
 ├── requirements.txt            # pinned PyPI deps
-├── pyproject.toml              # package metadata, pytest + ruff config
+├── pyproject.toml              # package metadata, pytest config
 ├── run.sh                      # bootstraps .venv if absent, then execs it
 ├── .venv/                      # git-ignored
 ├── docs/SPEC.md                # this document
+├── devtools/
+│   └── render_preview.py       # drives the real Canvas draw path offscreen
 ├── src/ganot8/
 │   ├── __main__.py             # argv -> Application
-│   ├── app.py                  # Adw.Application: actions, accels, open/new-from-* handlers
-│   ├── window.py               # Adw.ApplicationWindow: ToolbarView, header, tool bar, sidebar
-│   ├── canvas.py               # Gtk.DrawingArea: viewport, zoom/pan, Cairo draw, event routing
-│   ├── document.py             # Document: source image, annotation list, z-order, dirty flag
-│   ├── annotations.py          # dataclasses per annotation type + draw()/hit_test()/handles()
-│   ├── geometry.py             # Rect/Point, transforms, handle math, arrow/line hit tolerance
-│   ├── history.py              # Command stack: do/undo/redo, drag coalescing
-│   ├── render.py               # shared Cairo drawing used by both canvas and export
+│   ├── gi_init.py              # pins GI versions; import before any gi.repository
+│   ├── app.py                  # Adw.Application: actions, accelerators, file opening
+│   ├── window.py               # header bar, tool strip, style sidebar, text popover
+│   ├── canvas.py               # DrawingArea: zoom/pan, selection, tool dispatch
+│   ├── document.py             # source image, annotation list, history, queries
+│   ├── annotations.py          # every annotation kind + the registry
+│   ├── geometry.py             # Point/Rect, handles, resize, segment distance
+│   ├── history.py              # Add/Remove/StateChange/Reorder + undo stack
+│   ├── render.py               # shared draw path: canvas and exporter both call it
+│   ├── surfaces.py             # PIL <-> Cairo ARGB32 bridge (premultiply/un-premultiply)
 │   ├── tools/
-│   │   ├── base.py             # Tool protocol: on_press/on_motion/on_release/on_key, cursor
-│   │   ├── select.py           # select, move, resize via handles, marquee
-│   │   ├── highlight.py  redact.py  underline.py  arrow.py  text.py
-│   │   ├── shapes.py           # box, ellipse, freehand
-│   │   ├── badge.py            # numbered step badges
-│   │   └── crop.py             # crop + rotate
+│   │   ├── base.py             # Tool interface + registry
+│   │   ├── select.py           # pick, move, resize, marquee, nudge, double-click
+│   │   ├── shapes.py           # RectangleTool / LineTool bases + BoxTool
+│   │   ├── highlight.py        # HighlightTool
+│   │   ├── redact.py           # RedactTool
+│   │   ├── underline.py        # UnderlineTool (forced horizontal)
+│   │   ├── arrow.py            # ArrowTool
+│   │   ├── text.py             # TextTool
+│   │   ├── badge.py            # (phase 5) numbered step badges
+│   │   └── crop.py             # (phase 5) crop + rotate
 │   ├── imageio/
 │   │   ├── loader.py           # Pillow-first load, GdkPixbuf fallback
 │   │   ├── exporter.py         # flatten -> Pillow -> save, metadata stripped
-│   │   └── project.py          # .ganot8 zip container read/write
-│   ├── effects.py              # Pillow blur/pixelate patch generation + surface cache
-│   ├── portal.py               # org.freedesktop.portal.Screenshot
-│   ├── clipboard.py            # paste texture in, copy flattened out
-│   └── settings.py             # GSettings wrapper with in-memory fallback
-├── data/
-│   ├── io.github.martinb.Ganot8.desktop
-│   ├── io.github.martinb.Ganot8.gschema.xml
-│   ├── icons/…Ganot8.svg
-│   └── style.css
-└── tests/                      # pytest: geometry, model, history, imageio, project
+│   │   └── project.py          # (phase 4) .ganot8 zip container
+│   ├── effects.py              # (phase 5) blur/pixelate patches + surface cache
+│   ├── portal.py               # (phase 6) org.freedesktop.portal.Screenshot
+│   ├── clipboard.py            # (phase 6) paste texture in, copy flattened out
+│   └── settings.py             # (phase 6) GSettings wrapper with in-memory fallback
+├── data/                       # (phase 6) .desktop, gschema, icons
+└── tests/                      # see section 11 for the display-free / display split
 ```
+
+Entries marked with a phase do not exist yet. `tools/__init__.py` lists the creation
+tools explicitly rather than relying on import side effects, because that import order
+is what the tool strip shows.
 
 Rationale for `render.py`: the on-screen canvas and the flattened export **must** share
 one drawing routine, or exported output will drift from the preview. Screen draw applies
@@ -181,16 +189,21 @@ coordinates, so zoom, pan, and window size never affect saved output.
 
 Annotation types (dataclasses sharing a common protocol):
 
-| Type | Geometry | Style |
-|---|---|---|
-| `Highlight` | rect | colour, alpha (default yellow @ 0.35, `MULTIPLY` operator) |
-| `Redact` | rect | style: `solid` \| `blur` \| `pixelate`; colour; strength |
-| `Underline` | p0, p1 | colour, width, wavy flag |
-| `Arrow` | p0, p1 | colour, width, head size |
-| `TextLabel` | anchor point, wrap width | text, Pango font desc, colour, optional filled background + padding |
-| `Box` / `Ellipse` | rect | stroke colour/width, optional fill |
-| `Freehand` | point list | colour, width |
-| `Badge` | centre point, number | fill/text colour, radius |
+| Type | Geometry | Style | Status |
+|---|---|---|---|
+| `Highlight` | rect | colour, opacity (yellow @ 0.35, `MULTIPLY` operator) | built |
+| `Redact` | rect | colour, `style` (`solid`; `blur`/`pixelate` + strength in phase 5) — **no opacity, by design** | built |
+| `Underline` | start, end | colour, width, opacity, wavy | built |
+| `Arrow` | start, end | colour, width, opacity, `head_scale` | built |
+| `TextLabel` | anchor, wrap width | text, Pango font string, colour, opacity, optional background plate + padding | built |
+| `Box` | rect | colour, width, opacity, filled | built |
+| `Ellipse` | rect | stroke colour/width, optional fill | phase 5 |
+| `Freehand` | point list | colour, width | phase 5 |
+| `Badge` | centre point, number | fill/text colour, radius | phase 5 |
+
+`Redact.style` is serialised already, so adding blur and pixelate in phase 5 needs no
+project-format change. `Arrow.head_scale` is likewise stored but not yet exposed in the
+sidebar; the head is derived from the stroke width.
 
 Every type implements `draw(cr)`, `bounds()`, `hit_test(pt, tol)`, `handles()`,
 `move(dx, dy)`, `set_handle(handle, pt)`, plus `to_dict()` / `from_dict()` and
@@ -337,11 +350,22 @@ motion event.
 
 ## 8. Keyboard shortcuts
 
-`Ctrl+O` open · `Ctrl+V` paste · `Ctrl+Shift+P` screenshot · `Ctrl+S` export ·
-`Ctrl+Shift+S` save project · `Ctrl+Shift+E` export as · `Ctrl+C` copy flattened ·
-`Ctrl+Z` / `Ctrl+Shift+Z` undo/redo · `Delete` delete selection ·
-`Ctrl+0` / `Ctrl+1` zoom fit / 100% · `Ctrl+-` / `Ctrl+=` zoom ·
-`S H R U A T B E F N C` tool shortcuts · `F1` shortcuts window.
+**Implemented:** `Ctrl+O` open · `Ctrl+S` export · `Ctrl+Shift+E` export as ·
+`Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo · `Ctrl+A` select all ·
+`Ctrl+Shift+A` deselect · `Delete` / `Backspace` delete selection ·
+`Ctrl+Page_Up` / `Ctrl+Page_Down` raise / lower · `F9` toggle style sidebar ·
+`Ctrl+0` zoom to fit · `Ctrl+1` actual size · `Ctrl+-` / `Ctrl+=` zoom ·
+`Ctrl+Q` quit · arrow keys nudge 1px, `Shift`+arrow 10px · `Escape` cancel or deselect.
+
+**Tool keys:** `S` select · `H` highlight · `R` redact · `U` underline · `A` arrow ·
+`T` text · `B` box. These are bound to the stateful `win.tool` action, so the detailed
+action name carries the tool (`win.tool::highlight`).
+
+**Planned, not yet bound:** `Ctrl+V` paste and `Ctrl+Shift+P` screenshot (phase 6);
+`Ctrl+Shift+S` save project and `Ctrl+C` copy flattened (phase 4); `E` ellipse,
+`F` freehand, `N` badge, `C` crop (phase 5); `F1` shortcuts window — note this needs a
+`Gtk.ShortcutsWindow` built and a `win.show-help-overlay` action added, which is
+currently unassigned to any phase; fold it into phase 6.
 
 ## 9. Settings (GSettings, schema `io.github.martinb.Ganot8`)
 
@@ -373,12 +397,27 @@ Each phase ends with a runnable app and is approved separately.
 5. **v1 extras** — crop/rotate, blur/pixelate redaction (`effects.py` with patch cache),
    box/ellipse/freehand, numbered badges.
 6. **Desktop integration** — clipboard paste/copy, XDG screenshot portal, `.desktop`
-   file + icon + MIME associations so Ganot8 appears under Files' "Open With".
+   file + icon + MIME associations so Ganot8 appears under Files' "Open With",
+   a `Gtk.ShortcutsWindow` behind `F1`, and GSettings persistence (section 9).
 7. **Packaging (deferred)** — Meson build, GResource-bundled UI, Flatpak manifest.
 
 ## 11. Verification
 
-- **Automated (`.venv/bin/pytest`, headless, no display needed):** PIL↔Cairo round-trip
+The suite splits in two, and the distinction matters for CI:
+
+- **Display-free (141 tests)** — pure logic and image handling, runnable anywhere:
+  `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
+  `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
+  `test_exporter`.
+- **Needs a display (101 tests)** — `test_tools`, `test_core_tools`, `test_window`,
+  `test_centering`. These construct real GTK widgets, and `test_centering` presents a
+  real toplevel and waits for genuine allocation cycles. Each module calls
+  `Gtk.init_check()` and **skips the whole module** when there is no display, so on a
+  headless runner they vanish silently rather than failing — 40% of the suite would be
+  skipped without anyone noticing. Install `xorg-x11-server-Xvfb` and run under
+  `xvfb-run` to actually execute them.
+
+- **What the display-free tests cover:** PIL↔Cairo round-trip
   fidelity; geometry and hit-testing;
   annotation `to_dict`/`from_dict` round-trip including unknown-type preservation;
   undo/redo invariants (N operations then N undos restores the initial model);
