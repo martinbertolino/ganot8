@@ -153,7 +153,7 @@ ganot8/
 │   │   ├── loader.py           # Pillow-first load, GdkPixbuf fallback
 │   │   ├── exporter.py         # flatten -> Pillow -> save, metadata stripped
 │   │   └── project.py          # .ganot8 zip container: save/load, atomic replace
-│   ├── effects.py              # (phase 5) blur/pixelate patches + surface cache
+│   ├── effects.py              # blur/pixelate patches, strength floors, cache
 │   ├── portal.py               # (phase 6) org.freedesktop.portal.Screenshot
 │   ├── clipboard.py            # (phase 6) paste texture in, copy flattened out
 │   └── settings.py             # (phase 6) GSettings wrapper with in-memory fallback
@@ -197,7 +197,7 @@ Annotation types (dataclasses sharing a common protocol):
 | Type | Geometry | Style | Status |
 |---|---|---|---|
 | `Highlight` | rect | colour, opacity (yellow @ 0.35, `MULTIPLY` operator) | built |
-| `Redact` | rect | colour, `style` (`solid`; `blur`/`pixelate` + strength in phase 5) — **no opacity, by design** | built |
+| `Redact` | rect | `style` (`solid`/`blur`/`pixelate`), colour (solid only), strength (blur/pixelate only) — **no opacity, by design** | built |
 | `Underline` | start, end | colour, width, opacity, wavy | built |
 | `Arrow` | start, end | colour, width, opacity, `head_scale` | built |
 | `TextLabel` | anchor, wrap width | text, Pango font string, colour, opacity, optional background plate + padding | built |
@@ -318,10 +318,28 @@ alpha to `1.0` and ignores both `opacity` and the alpha channel of `color`, and
 control. A translucent redaction is not a redaction, and this makes that unexpressible
 rather than merely discouraged.
 
-Blur/pixelate strength has a sane floor (pixelate block ≥ 8px at image scale, blur
-radius scaled to region size) so a "redaction" can't be set to a cosmetically-blurred,
-trivially-reversible value. Solid block remains the default style, with a one-line hint
-in the UI that solid is the safe choice for sensitive data.
+Blur and pixelate strength is a 1–100 slider scaled to the region, with **hard floors**
+in `effects.py`: a pixelate block is never smaller than 8px and a blur radius never
+below 6.0, whatever the slider says. Without them a user could pick a reassuring-looking
+value that leaves the content readable. Measured on dark text over a light field, mean
+neighbouring-pixel difference — a proxy for how much glyph structure survives — falls
+from **5.29 to 0.05 (blur) and 0.10 (pixelate)**, and stays below 0.5 even at strength 1.
+Solid block remains the default, and the style row carries the line "A solid block is
+the safe choice for anything sensitive".
+
+Two further properties hold the privacy line:
+
+- `Redact.draw()` **degrades to a solid block** whenever the patch cannot be built — no
+  `RenderContext`, no cache, a region off the image. Drawing nothing would silently
+  expose what the user asked to hide, so the fallback is the safest output, not the
+  cheapest.
+- An **unrecognised style loads as solid**, so a project written by a newer build cannot
+  produce a see-through redaction in this one.
+
+Effects need the pixels underneath, which ordinary drawing does not, so `draw()` takes
+an optional `RenderContext` carrying the source image and the document's `EffectCache`.
+The cache is keyed on style, strength and the integer rect, and is dropped wholesale
+whenever `replace_source` runs — every patch was cut from pixels that no longer exist.
 
 ## 7. Interaction & UI
 
@@ -440,7 +458,8 @@ The suite splits in two, and the distinction matters for CI:
 - **Display-free** (195 tests as of phase 4) — pure logic and image handling, runnable anywhere:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
-  `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_spec`.
+  `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_effects`,
+  `test_spec`.
 - **Needs a display** (124 tests as of phase 4) — `test_tools`, `test_core_tools`,
   `test_window`, `test_centering`. These construct real GTK widgets, and
   `test_centering` presents a real toplevel and drives genuine allocation cycles.

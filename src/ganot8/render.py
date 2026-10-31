@@ -4,11 +4,34 @@ Both the on-screen canvas and the file exporter call :func:`draw_document`. The
 canvas draws through a zoom/pan matrix; the exporter draws at scale 1.0 into an
 image surface. Sharing this function is what keeps an exported file identical to
 what the user saw - a second drawing routine would inevitably drift from it.
+
+Selection handles, the marquee and tool previews are deliberately **not** drawn
+here. They belong to the canvas, so they cannot reach an export.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import cairo
+
+
+@dataclass(frozen=True)
+class RenderContext:
+    """What an annotation may need beyond the Cairo context itself.
+
+    Only blur and pixelate redactions use it: they have to read the pixels they
+    are covering, which nothing else does. It is optional everywhere so that a
+    kind which does not need it can ignore it entirely.
+    """
+
+    source: Any = None
+    cache: Any = None
+
+    @classmethod
+    def for_document(cls, document) -> "RenderContext":
+        return cls(source=document.source, cache=document.effect_cache)
 
 
 def draw_document(cr: cairo.Context, document, *, smooth: bool = True) -> None:
@@ -36,9 +59,10 @@ def draw_document(cr: cairo.Context, document, *, smooth: bool = True) -> None:
 
 def draw_annotations(cr: cairo.Context, document) -> None:
     """Draw every annotation in z-order (first in the list is furthest back)."""
+    context = RenderContext.for_document(document)
     for annotation in document.annotations:
         cr.save()
         try:
-            annotation.draw(cr)
+            annotation.draw(cr, context)
         finally:
             cr.restore()

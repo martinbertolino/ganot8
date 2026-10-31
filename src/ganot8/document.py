@@ -15,6 +15,7 @@ from . import gi_init  # noqa: F401
 from gi.repository import GObject
 
 from .annotations import Annotation, Redact, annotation_from_dict
+from .effects import EffectCache
 from .history import BurnInRedactions, History
 from .imageio.loader import LoadedImage
 from .surfaces import CairoImage, new_surface, pil_to_surface, surface_to_pil
@@ -42,6 +43,8 @@ class Document(GObject.Object):
         self._cairo_image: CairoImage | None = None
         #: Original filename remembered from a project, for export naming.
         self.source_name_hint: str | None = None
+        #: Blur/pixelate patches, valid only for the current source pixels.
+        self.effect_cache = EffectCache()
 
     # -- construction ----------------------------------------------------
 
@@ -118,6 +121,8 @@ class Document(GObject.Object):
         """Swap the source pixels (crop, rotate, burn-in) and drop the cache."""
         self._source = image if image.mode == "RGBA" else image.convert("RGBA")
         self._cairo_image = None
+        # Every cached patch was cut from the old pixels.
+        self.effect_cache.clear()
         self.mark_dirty()
 
     # -- metadata --------------------------------------------------------

@@ -19,6 +19,13 @@ import cairo
 from . import gi_init  # noqa: F401
 from gi.repository import Pango, PangoCairo
 
+from .effects import (
+    DEFAULT_STRENGTH,
+    REDACT_STYLES,
+    STYLE_BLUR,
+    STYLE_PIXELATE,
+    STYLE_SOLID,
+)
 from .geometry import (
     EMPTY_RECT,
     Handle,
@@ -40,6 +47,8 @@ STYLE_FILLED = "filled"
 STYLE_FONT = "font"
 STYLE_WAVY = "wavy"
 STYLE_BACKGROUND = "background"
+STYLE_REDACT_STYLE = "style"
+STYLE_STRENGTH = "strength"
 
 #: Every style key a sidebar row can edit, in the order they are shown.
 STYLE_KEYS = (
@@ -50,6 +59,8 @@ STYLE_KEYS = (
     STYLE_FILLED,
     STYLE_WAVY,
     STYLE_BACKGROUND,
+    STYLE_REDACT_STYLE,
+    STYLE_STRENGTH,
 )
 
 _REGISTRY: dict[str, type["Annotation"]] = {}
@@ -98,8 +109,12 @@ class Annotation:
         """Bounding box in image coordinates, including stroke width."""
         raise NotImplementedError
 
-    def draw(self, cr: cairo.Context) -> None:
-        """Draw in image coordinates. The caller has already saved the context."""
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
+        """Draw in image coordinates. The caller has already saved the context.
+
+        ``ctx`` is a :class:`~ganot8.render.RenderContext` when one is
+        available. It is optional because only blur and pixelate redactions
+        need to read the pixels underneath."""
         raise NotImplementedError
 
     def hit_test(self, point: Point, tolerance: float) -> bool:
@@ -233,7 +248,7 @@ class Box(RectAnnotation):
     #: and an outline is one switch away.
     filled: bool = True
 
-    def draw(self, cr: cairo.Context) -> None:
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         rect = self.rect.normalized()
         if rect.is_empty():
             return
@@ -293,7 +308,7 @@ class UnknownAnnotation(Annotation):
     def bounds(self) -> Rect:
         return EMPTY_RECT
 
-    def draw(self, cr: cairo.Context) -> None:
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         return
 
     def hit_test(self, point: Point, tolerance: float) -> bool:
@@ -354,7 +369,7 @@ class Highlight(RectAnnotation):
     def bounds(self) -> Rect:
         return self.rect.normalized()
 
-    def draw(self, cr: cairo.Context) -> None:
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         rect = self.rect.normalized()
         if rect.is_empty():
             return
@@ -383,18 +398,35 @@ class Redact(RectAnnotation):
 
     kind: ClassVar[str] = "redact"
     label: ClassVar[str] = "Redaction"
-    style_properties: ClassVar[tuple[str, ...]] = (STYLE_COLOR,)
+    style_properties: ClassVar[tuple[str, ...]] = (
+        STYLE_REDACT_STYLE,
+        STYLE_COLOR,
+        STYLE_STRENGTH,
+    )
 
     color: RGBA = (0.0, 0.0, 0.0, 1.0)
-    style: str = "solid"
+    style: str = STYLE_SOLID
+    strength: float = DEFAULT_STRENGTH
 
     def bounds(self) -> Rect:
         return self.rect.normalized()
 
-    def draw(self, cr: cairo.Context) -> None:
+    def visible_style_properties(self) -> tuple[str, ...]:
+        # Colour only means something for a solid block; strength only means
+        # something for the two that actually process pixels.
+        if self.style == STYLE_SOLID:
+            return (STYLE_REDACT_STYLE, STYLE_COLOR)
+        return (STYLE_REDACT_STYLE, STYLE_STRENGTH)
+
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         rect = self.rect.normalized()
         if rect.is_empty():
             return
+        if self.style in (STYLE_BLUR, STYLE_PIXELATE) and self._draw_effect(cr, rect, ctx):
+            return
+        # Solid, and the fallback whenever the pixels are unavailable: covering
+        # the region completely is always safe, whereas skipping the draw would
+        # silently expose what the user asked to hide.
         red, green, blue, _ = self.color
         cr.save()
         cr.set_operator(cairo.OPERATOR_OVER)
@@ -404,18 +436,43 @@ class Redact(RectAnnotation):
         cr.fill()
         cr.restore()
 
+    def _draw_effect(self, cr: cairo.Context, rect: Rect, ctx) -> bool:
+        """Paint the blurred or pixelated patch. False if it could not be built."""
+        source = getattr(ctx, "source", None)
+        cache = getattr(ctx, "cache", None)
+        if source is None or cache is None:
+            return False
+        patch = cache.patch(source, self.style, self.strength, rect)
+        if patch is None:
+            return False
+
+        cr.save()
+        cr.rectangle(rect.x, rect.y, rect.width, rect.height)
+        cr.clip()
+        # The patch was cut from integer pixel bounds, so it is placed on them.
+        cr.set_source_surface(patch.surface, float(int(rect.x)), float(int(rect.y)))
+        cr.get_source().set_extend(cairo.EXTEND_PAD)
+        cr.paint()
+        cr.restore()
+        return True
+
     def hit_test(self, point: Point, tolerance: float) -> bool:
         return self.rect.normalized().inflated(tolerance).contains(point)
 
     def geometry_to_dict(self) -> dict[str, Any]:
         data = super().geometry_to_dict()
         data["style"] = self.style
+        data["strength"] = self.strength
         return data
 
     def geometry_from_dict(self, data: dict[str, Any]) -> None:
         super().geometry_from_dict(data)
         if "style" in data:
-            self.style = str(data["style"])
+            style = str(data["style"])
+            # An unknown style must fall back to solid, never to "draw nothing".
+            self.style = style if style in REDACT_STYLES else STYLE_SOLID
+        if "strength" in data:
+            self.strength = float(data["strength"])
 
 
 @dataclass(eq=False)
@@ -493,7 +550,7 @@ class Underline(LineAnnotation):
     def _wavelength(self) -> float:
         return max(4.0, self.stroke_width * 4)
 
-    def draw(self, cr: cairo.Context) -> None:
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         if self.length <= 0:
             return
         self._set_stroke(cr)
@@ -557,7 +614,7 @@ class Arrow(LineAnnotation):
         reach = max(self.stroke_width / 2, self.head_length * 0.6) + 1
         return Rect.from_points(self.start, self.end).inflated(reach)
 
-    def draw(self, cr: cairo.Context) -> None:
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         length = self.length
         if length <= 0:
             return
@@ -670,7 +727,7 @@ class TextLabel(Annotation):
     def hit_test(self, point: Point, tolerance: float) -> bool:
         return self.bounds().inflated(tolerance).contains(point)
 
-    def draw(self, cr: cairo.Context) -> None:
+    def draw(self, cr: cairo.Context, ctx=None) -> None:
         if not self.text:
             return
         layout = self._build_layout(cr)

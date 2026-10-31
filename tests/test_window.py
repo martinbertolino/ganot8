@@ -203,6 +203,8 @@ def _visible_rows(window) -> set[str]:
     return {
         name
         for name, row in (
+            ("style", window._redact_style_row),
+            ("strength", window._strength_row),
             ("colour", window._colour_row),
             ("font", window._font_row),
             ("width", window._width_row),
@@ -220,7 +222,7 @@ def test_sidebar_shows_only_the_rows_a_kind_supports(window):
 
     cases = {
         Highlight(): {"colour", "opacity"},
-        Redact(): {"colour"},
+        Redact(): {"style", "colour"},
         Underline(): {"colour", "width", "opacity", "wavy"},
         TextLabel(text="x"): {"colour", "font", "opacity", "background"},
     }
@@ -530,7 +532,7 @@ def test_picking_a_tool_updates_the_sidebar_while_something_is_selected(window):
     "tool,expected",
     [
         ("highlight", {"colour", "opacity"}),
-        ("redact", {"colour"}),
+        ("redact", {"style", "colour"}),
         ("underline", {"colour", "width", "opacity", "wavy"}),
         ("arrow", {"colour", "width", "opacity"}),
         ("text", {"colour", "font", "opacity", "background"}),
@@ -559,3 +561,69 @@ def test_arrange_actions_follow_the_cleared_selection(window):
     window.canvas.activate_tool("arrow")
     assert not enabled(window, "delete")
     assert not enabled(window, "raise-annotation")
+
+
+# -- redaction style controls --------------------------------------------
+
+
+def test_redaction_shows_colour_for_solid_and_strength_for_the_others(window):
+    """Colour is meaningless for a blur; strength is meaningless for a block."""
+    from ganot8.annotations import Redact
+    from ganot8.effects import STYLE_BLUR, STYLE_PIXELATE, STYLE_SOLID
+
+    redaction = Redact(rect=Rect(0, 0, 40, 20))
+    window.document.annotations.append(redaction)
+    window.canvas.set_selection([redaction])
+    assert _visible_rows(window) == {"style", "colour"}
+
+    for style in (STYLE_BLUR, STYLE_PIXELATE):
+        redaction.style = style
+        window._sync_style_controls()
+        assert _visible_rows(window) == {"style", "strength"}, style
+
+    redaction.style = STYLE_SOLID
+    window._sync_style_controls()
+    assert _visible_rows(window) == {"style", "colour"}
+
+
+def test_choosing_blur_from_the_sidebar_is_undoable(window):
+    from ganot8.annotations import Redact
+    from ganot8.effects import REDACT_STYLES, STYLE_BLUR
+
+    redaction = Redact(rect=Rect(0, 0, 40, 20))
+    window.document.annotations.append(redaction)
+    window.canvas.set_selection([redaction])
+
+    window._redact_style_row.set_selected(REDACT_STYLES.index(STYLE_BLUR))
+    assert redaction.style == STYLE_BLUR
+    assert window.document.history.undo_label == "Change Redaction Style"
+    window.lookup_action("undo").activate(None)
+    assert redaction.style == "solid"
+
+
+def test_strength_edits_apply_and_undo(window):
+    from ganot8.annotations import Redact
+    from ganot8.effects import STYLE_PIXELATE
+
+    redaction = Redact(rect=Rect(0, 0, 40, 20), style=STYLE_PIXELATE)
+    window.document.annotations.append(redaction)
+    window.canvas.set_selection([redaction])
+
+    window._strength_row.set_value(90)
+    assert redaction.strength == pytest.approx(90.0)
+    window.lookup_action("undo").activate(None)
+    assert redaction.strength == pytest.approx(50.0)
+
+
+def test_redaction_still_offers_no_opacity_control_in_any_style(window):
+    """A see-through redaction leaks, whichever style it is drawn in."""
+    from ganot8.annotations import Redact
+    from ganot8.effects import REDACT_STYLES
+
+    redaction = Redact(rect=Rect(0, 0, 40, 20))
+    window.document.annotations.append(redaction)
+    window.canvas.set_selection([redaction])
+    for style in REDACT_STYLES:
+        redaction.style = style
+        window._sync_style_controls()
+        assert not window._opacity_row.get_visible(), style

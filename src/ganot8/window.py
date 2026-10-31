@@ -15,12 +15,15 @@ from .annotations import (
     STYLE_FILLED,
     STYLE_FONT,
     STYLE_OPACITY,
+    STYLE_REDACT_STYLE,
+    STYLE_STRENGTH,
     STYLE_STROKE_WIDTH,
     STYLE_WAVY,
 )
 from . import resources
 from .canvas import Canvas
 from .dialogs import ExportOptionsDialog
+from .effects import REDACT_STYLES, STYLE_SOLID
 from .document import Document
 from .history import Reorder, StateChange
 from .imageio import exporter, project
@@ -33,7 +36,11 @@ log = logging.getLogger(__name__)
 _ROW_PADDING = 12
 
 #: Style attributes the sidebar has a widget for.
+_REDACT_STYLE_LABELS = ("Solid block", "Blur", "Pixelate")
+
 _STYLE_WIDGET_KEYS = (
+    STYLE_REDACT_STYLE,
+    STYLE_STRENGTH,
     STYLE_COLOR,
     STYLE_FONT,
     STYLE_STROKE_WIDTH,
@@ -254,6 +261,25 @@ class Window(Adw.ApplicationWindow):
 
         self._style_group = Adw.PreferencesGroup(title="Style")
         page.add(self._style_group)
+
+        redact_styles = Gtk.StringList()
+        for label in _REDACT_STYLE_LABELS:
+            redact_styles.append(label)
+        self._redact_style_row = Adw.ComboRow(
+            title="Style",
+            subtitle="A solid block is the safe choice for anything sensitive",
+            model=redact_styles,
+        )
+        self._redact_style_row.connect("notify::selected", self._on_redact_style_changed)
+        self._style_group.add(self._redact_style_row)
+
+        self._strength_row = Adw.SpinRow(
+            title="Strength",
+            subtitle="Below a floor the content stays readable, so it cannot go weaker",
+            adjustment=Gtk.Adjustment(value=50, lower=1, upper=100, step_increment=5),
+        )
+        self._strength_row.connect("notify::value", self._on_strength_changed)
+        self._style_group.add(self._strength_row)
 
         self._colour_button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog())
         self._colour_button.set_valign(Gtk.Align.CENTER)
@@ -620,6 +646,11 @@ class Window(Adw.ApplicationWindow):
                     )
 
             colour = values.get(STYLE_COLOR) or (0, 0, 0, 1)
+            redact_style = values.get(STYLE_REDACT_STYLE) or STYLE_SOLID
+            if redact_style in REDACT_STYLES:
+                self._redact_style_row.set_selected(REDACT_STYLES.index(redact_style))
+            self._strength_row.set_value(float(values.get(STYLE_STRENGTH) or 50.0))
+
             red, green, blue, alpha = colour
             self._colour_button.set_rgba(Gdk.RGBA(red=red, green=green, blue=blue, alpha=alpha))
             font = values.get(STYLE_FONT)
@@ -632,6 +663,8 @@ class Window(Adw.ApplicationWindow):
             self._background_row.set_active(bool(values.get(STYLE_BACKGROUND)))
 
             for key, row in (
+                (STYLE_REDACT_STYLE, self._redact_style_row),
+                (STYLE_STRENGTH, self._strength_row),
                 (STYLE_COLOR, self._colour_row),
                 (STYLE_FONT, self._font_row),
                 (STYLE_STROKE_WIDTH, self._width_row),
@@ -678,6 +711,16 @@ class Window(Adw.ApplicationWindow):
         self._apply_style("filled", bool(row.get_active()), "Change Fill")
         # Filling hides Line Width, so the rows have to be re-evaluated.
         self._sync_style_controls()
+
+    def _on_redact_style_changed(self, row: Adw.ComboRow, _param) -> None:
+        index = row.get_selected()
+        if 0 <= index < len(REDACT_STYLES):
+            self._apply_style("style", REDACT_STYLES[index], "Change Redaction Style")
+            # Solid shows Colour; blur and pixelate show Strength instead.
+            self._sync_style_controls()
+
+    def _on_strength_changed(self, row: Adw.SpinRow, _param) -> None:
+        self._apply_style("strength", float(row.get_value()), "Change Strength")
 
     def _on_wavy_changed(self, row: Adw.SwitchRow, _param) -> None:
         self._apply_style("wavy", bool(row.get_active()), "Change Underline")

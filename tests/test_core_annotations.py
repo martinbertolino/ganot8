@@ -267,3 +267,75 @@ def test_text_round_trip_preserves_everything():
 def test_text_round_trip_with_no_wrap_width():
     label = TextLabel(text="x", wrap_width=None)
     assert annotation_from_dict(label.to_dict()).wrap_width is None
+
+
+# -- redaction styles ----------------------------------------------------
+
+
+def test_redact_defaults_to_solid():
+    from ganot8.effects import STYLE_SOLID
+
+    assert Redact().style == STYLE_SOLID
+
+
+def test_blur_redaction_falls_back_to_a_solid_block_without_pixels():
+    """The fallback must cover, not skip.
+
+    draw() is called with no RenderContext in plenty of places - a bare
+    annotation preview, a caller that has no document. Drawing nothing there
+    would silently expose exactly what the user asked to hide, so an
+    unavailable patch degrades to the safest possible output.
+    """
+    from ganot8.effects import STYLE_BLUR
+
+    redaction = Redact(rect=Rect(0, 0, 60, 40), style=STYLE_BLUR)
+    image = render(redaction, background=(1, 1, 1))
+    assert image.getpixel((30, 20)) == (0, 0, 0, 255)
+
+
+def test_blur_redaction_falls_back_when_the_cache_is_missing():
+    from ganot8.effects import STYLE_PIXELATE
+
+    class HalfContext:
+        source = object()
+        cache = None
+
+    redaction = Redact(rect=Rect(0, 0, 60, 40), style=STYLE_PIXELATE)
+    surface = new_surface(60, 40)
+    cr = cairo.Context(surface)
+    cr.set_source_rgb(1, 1, 1)
+    cr.paint()
+    redaction.draw(cr, HalfContext())
+    assert surface_to_pil(surface).getpixel((30, 20)) == (0, 0, 0, 255)
+
+
+def test_redact_round_trip_keeps_style_and_strength():
+    from ganot8.effects import STYLE_PIXELATE
+
+    redaction = Redact(rect=Rect(1, 2, 3, 4), style=STYLE_PIXELATE, strength=77.0)
+    restored = annotation_from_dict(redaction.to_dict())
+    assert restored.style == STYLE_PIXELATE
+    assert restored.strength == pytest.approx(77.0)
+
+
+def test_an_unknown_redaction_style_degrades_to_solid():
+    """A project from a newer build must not produce a see-through redaction."""
+    from ganot8.effects import STYLE_SOLID
+
+    restored = annotation_from_dict(
+        {"kind": "redact", "rect": [0, 0, 10, 10], "style": "hologram"}
+    )
+    assert restored.style == STYLE_SOLID
+
+
+def test_redaction_style_controls_which_rows_apply():
+    from ganot8.annotations import STYLE_COLOR, STYLE_STRENGTH
+    from ganot8.effects import STYLE_BLUR
+
+    solid = Redact(rect=Rect(0, 0, 10, 10))
+    assert STYLE_COLOR in solid.visible_style_properties()
+    assert STYLE_STRENGTH not in solid.visible_style_properties()
+
+    blurred = Redact(rect=Rect(0, 0, 10, 10), style=STYLE_BLUR)
+    assert STYLE_STRENGTH in blurred.visible_style_properties()
+    assert STYLE_COLOR not in blurred.visible_style_properties()
