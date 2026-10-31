@@ -82,8 +82,8 @@ def test_each_tool_creates_its_own_kind(canvas, tool_name, expected):
         assert isinstance(created, expected)
     assert canvas.document.history.depth == 1
     assert canvas.selection == [created]
-    # Every creation tool hands back to Select so the result can be adjusted.
-    assert canvas.tool_name == "select"
+    # The tool stays active, so a run of annotations needs no reselecting.
+    assert canvas.tool_name == tool_name
 
 
 # -- highlight and redact ------------------------------------------------
@@ -195,7 +195,7 @@ def test_committing_text_adds_it_as_one_undo_step(canvas):
     assert label.anchor == Point(40, 40)
     assert canvas.document.history.depth == 1
     assert canvas.selection == [label]
-    assert canvas.tool_name == "select"
+    assert canvas.tool_name == "text"
 
 
 def test_committing_empty_text_adds_nothing(canvas):
@@ -404,7 +404,7 @@ def test_consecutive_badges_are_numbered_in_order(canvas):
 
 
 def test_badge_tool_stays_active_between_badges(canvas):
-    """Badges come in runs, so returning to Select each time would be wrong."""
+    """Badges come in runs - as every annotation does; see the shared test."""
     canvas.activate_tool("badge")
     drag(canvas, (40, 40), (40, 40), steps=1)
     assert canvas.tool_name == "badge"
@@ -429,3 +429,53 @@ def test_each_new_tool_is_undoable_in_one_step(canvas):
     for _ in range(3):
         canvas.document.history.undo()
     assert canvas.document.annotations == []
+
+
+# -- tools stay selected -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tool_name,start,end",
+    [
+        ("highlight", (20, 20), (120, 60)),
+        ("redact", (20, 80), (120, 120)),
+        ("underline", (20, 140), (120, 140)),
+        ("arrow", (20, 160), (120, 200)),
+        ("box", (20, 220), (120, 260)),
+        ("ellipse", (140, 20), (240, 60)),
+        ("freehand", (140, 80), (240, 120)),
+        ("badge", (300, 40), (300, 40)),
+    ],
+)
+def test_a_creation_tool_stays_active_after_use(canvas, tool_name, start, end):
+    """Having to reselect the tool after every annotation is pure friction."""
+    canvas.activate_tool(tool_name)
+    drag(canvas, start, end)
+    assert canvas.tool_name == tool_name
+
+
+def test_a_run_of_annotations_needs_no_reselecting(canvas):
+    canvas.activate_tool("arrow")
+    for index in range(4):
+        drag(canvas, (20, 20 + index * 40), (160, 40 + index * 40))
+    assert len(canvas.document.annotations) == 4
+    assert canvas.tool_name == "arrow"
+
+
+def test_the_newest_annotation_stays_selected_for_restyling(canvas):
+    """Drawn, still selected - so its colour can be tweaked straight away."""
+    canvas.activate_tool("box")
+    drag(canvas, (10, 10), (110, 110))
+    first = canvas.document.annotations[0]
+    assert canvas.selection == [first]
+
+    drag(canvas, (150, 10), (250, 110))
+    assert canvas.selection == [canvas.document.annotations[1]]
+
+
+def test_crop_returns_to_select(canvas):
+    """Crop reshapes the image rather than adding to it, so repeating it on
+    the next drag would be surprising and destructive."""
+    canvas.activate_tool("crop")
+    drag(canvas, (20, 20), (200, 150))
+    assert canvas.tool_name == "select"

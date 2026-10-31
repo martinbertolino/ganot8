@@ -218,11 +218,14 @@ def test_box_tool_records_one_undo_step_and_selects_the_result(canvas):
     assert canvas.selection == [created]
 
 
-def test_box_tool_hands_back_to_select(canvas):
-    """So a freshly drawn shape can be adjusted without changing tool."""
+def test_box_tool_stays_active_after_drawing(canvas):
+    """Annotations come in runs; reselecting the tool each time is friction."""
     canvas.activate_tool("box")
     drag(canvas, (10, 10), (110, 110))
-    assert canvas.tool_name == "select"
+    assert canvas.tool_name == "box"
+
+    drag(canvas, (150, 10), (250, 110))
+    assert len(canvas.document.annotations) == 2
 
 
 def test_box_tool_discards_a_stray_click(canvas):

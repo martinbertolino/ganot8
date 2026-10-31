@@ -82,8 +82,10 @@ class RectangleTool(Tool):
         pending.rect = rect
         document.history.push(AddAnnotations(document, [pending], label=self.create_label))
         self.canvas.set_selection([pending])
-        # Hand back to Select so the new annotation can be adjusted at once.
-        self.canvas.activate_tool("select")
+        # The tool stays active, so a run of annotations can be drawn without
+        # reselecting it each time. The new annotation is left selected, so it
+        # can still be restyled immediately - and because _apply_style also
+        # updates the tool's remembered style, a tweak carries to the next one.
 
     def draw_overlay(self, cr: cairo.Context, zoom: float) -> None:
         if self._pending is None:
@@ -153,7 +155,10 @@ class LineTool(Tool):
 
         document.history.push(AddAnnotations(document, [pending], label=self.create_label))
         self.canvas.set_selection([pending])
-        self.canvas.activate_tool("select")
+        # The tool stays active, so a run of annotations can be drawn without
+        # reselecting it each time. The new annotation is left selected, so it
+        # can still be restyled immediately - and because _apply_style also
+        # updates the tool's remembered style, a tweak carries to the next one.
 
     def draw_overlay(self, cr: cairo.Context, zoom: float) -> None:
         if self._pending is None:

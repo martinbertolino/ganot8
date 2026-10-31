@@ -410,8 +410,18 @@ empty window. A screenshot is deliberately left **untitled** even though the por
 hands back a path, because that path is a temporary location and exporting beside it
 would scatter files somewhere unhelpful.
 
-Behaviour: drawing a shape selects it and switches back to Select (so it can be
-immediately adjusted); selection shows 8 resize handles, or endpoint handles for
+Behaviour: **a creation tool stays active after use**, so a run of annotations can be
+drawn without reselecting the tool each time — which was the single most irritating
+thing about the earlier design, where every shape handed back to Select. The new
+annotation is still left selected, so it can be restyled immediately; because
+`_apply_style` also updates the tool's remembered style, a tweak carries to the next
+one drawn.
+
+**Crop is the exception** and does return to Select. It reshapes the image rather than
+adding to it, so repeating it on the next drag would be both surprising and
+destructive.
+
+Selection shows 8 resize handles, or endpoint handles for
 arrow/underline and horizontal wrap-width handles for text; Escape cancels an
 in-progress drag; arrow keys nudge 1px, Shift+arrow 10px; Shift constrains to
 square/45°; an underline is always forced horizontal, since a sloping one is never

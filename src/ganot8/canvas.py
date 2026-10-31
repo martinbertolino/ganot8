@@ -322,7 +322,9 @@ class Canvas(Gtk.DrawingArea):
                     AddAnnotations(document, [annotation], label="Add Text")
                 )
                 self.set_selection([annotation])
-            self.activate_tool("select")
+            # Unlike the other tools this one has to handle the cancelled case
+            # too: with no text committed there is nothing to select, but the
+            # Text tool still stays active for the next label.
         elif not text:
             # Emptying a label deletes it, rather than leaving an invisible one.
             self.set_selection([])

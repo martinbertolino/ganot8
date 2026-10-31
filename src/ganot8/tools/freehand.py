@@ -68,7 +68,10 @@ class FreehandTool(Tool):
 
         document.history.push(AddAnnotations(document, [pending], label=self.create_label))
         self.canvas.set_selection([pending])
-        self.canvas.activate_tool("select")
+        # The tool stays active, so a run of annotations can be drawn without
+        # reselecting it each time. The new annotation is left selected, so it
+        # can still be restyled immediately - and because _apply_style also
+        # updates the tool's remembered style, a tweak carries to the next one.
 
     @staticmethod
     def _length(stroke: Freehand) -> float:
