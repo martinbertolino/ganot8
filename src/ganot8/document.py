@@ -14,6 +14,8 @@ from PIL import Image
 from . import gi_init  # noqa: F401
 from gi.repository import GObject
 
+from .annotations import Annotation, annotation_from_dict
+from .history import History
 from .imageio.loader import LoadedImage
 from .surfaces import CairoImage, pil_to_surface
 
@@ -32,7 +34,8 @@ class Document(GObject.Object):
         self._loaded = loaded
         self.source_path: Path | None = loaded.path
         self.project_path: Path | None = None
-        self.annotations: list = []
+        self.annotations: list[Annotation] = []
+        self.history = History()
         self.rotation: int = 0
         self.crop = None
         self._dirty = False
@@ -109,3 +112,32 @@ class Document(GObject.Object):
 
     def mark_clean(self) -> None:
         self._dirty = False
+
+    # -- annotations -----------------------------------------------------
+
+    def annotations_to_list(self) -> list[dict]:
+        """Serialise the annotation list, preserving unknown kinds verbatim."""
+        return [annotation.to_dict() for annotation in self.annotations]
+
+    def annotations_from_list(self, data) -> None:
+        self.annotations = [annotation_from_dict(entry) for entry in data]
+        self.mark_dirty()
+
+    def annotation_at(self, point, tolerance: float = 0.0) -> Annotation | None:
+        """Topmost selectable annotation under ``point``.
+
+        Iterates in reverse because the end of the list is drawn last and so
+        sits on top.
+        """
+        for annotation in reversed(self.annotations):
+            if annotation.selectable and annotation.hit_test(point, tolerance):
+                return annotation
+        return None
+
+    def annotations_in(self, rect) -> list[Annotation]:
+        """Selectable annotations fully enclosed by ``rect``."""
+        return [
+            annotation
+            for annotation in self.annotations
+            if annotation.selectable and rect.contains_rect(annotation.bounds())
+        ]

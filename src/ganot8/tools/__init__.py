@@ -1,5 +1,18 @@
 """Annotation tools.
 
-Empty until phase 3; the canvas currently only views and pans. See
-docs/SPEC.md section 10.
+Importing this package registers the tools, in the order they appear in the
+tool strip. See docs/SPEC.md section 10 for the phased plan.
 """
+
+from .base import Tool, register, registered_tools
+from .select import SelectTool
+from .shapes import BoxTool, RectangleTool
+
+__all__ = [
+    "BoxTool",
+    "RectangleTool",
+    "SelectTool",
+    "Tool",
+    "register",
+    "registered_tools",
+]

@@ -22,12 +22,29 @@ _ACCELERATORS = {
     "win.zoom-out": ("<Control>minus", "<Control>KP_Subtract"),
     "win.zoom-fit": ("<Control>0",),
     "win.zoom-100": ("<Control>1",),
+    "win.undo": ("<Control>z",),
+    "win.redo": ("<Control><Shift>z", "<Control>y"),
+    "win.select-all": ("<Control>a",),
+    "win.deselect": ("<Control><Shift>a",),
+    "win.raise-annotation": ("<Control>Page_Up",),
+    "win.lower-annotation": ("<Control>Page_Down",),
+    "win.toggle-sidebar": ("F9",),
     "app.quit": ("<Control>q",),
+}
+
+#: Single-key tool shortcuts, bound to the stateful "win.tool" action.
+_TOOL_ACCELERATORS = {
+    "select": "s",
+    "box": "b",
 }
 
 _STYLESHEET = b"""
 .ganot8-canvas-area {
     background-color: shade(@window_bg_color, 0.82);
+}
+.ganot8-tool-strip button {
+    min-width: 34px;
+    min-height: 34px;
 }
 """
 
@@ -90,6 +107,11 @@ class Application(Adw.Application):
 
         for detailed_name, accels in _ACCELERATORS.items():
             self.set_accels_for_action(detailed_name, list(accels))
+
+        # Tool shortcuts target the stateful action with a string parameter,
+        # so the detailed name carries the tool it selects.
+        for tool_name, key in _TOOL_ACCELERATORS.items():
+            self.set_accels_for_action(f"win.tool::{tool_name}", [key])
 
     def _install_stylesheet(self) -> None:
         display = Gdk.Display.get_default()

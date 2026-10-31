@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 1 complete · **Last updated:** 2026-10-31
+**Status:** Phase 2 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -157,6 +157,12 @@ Rationale for `render.py`: the on-screen canvas and the flattened export **must*
 one drawing routine, or exported output will drift from the preview. Screen draw applies
 a zoom/pan matrix; export draws at scale 1.0 into an image surface. Same code path.
 
+The converse boundary matters just as much: **selection chrome and tool previews are
+drawn by `canvas.py`, never by `render.py`.** Handles, the dashed selection outline and
+the marquee are screen-space and must not exist in an export; keeping them outside the
+shared path makes that structural rather than something to remember. A test asserts a
+flattened export is byte-identical with and without a selection.
+
 ## 4. Data model
 
 ```python
@@ -186,8 +192,16 @@ Annotation types (dataclasses sharing a common protocol):
 | `Freehand` | point list | colour, width |
 | `Badge` | centre point, number | fill/text colour, radius |
 
-Every type implements `draw(cr, ctx)`, `bounds()`, `hit_test(pt, tol)`,
-`handles()`, `move(dx, dy)`, `set_handle(i, pt)`, plus `to_dict()` / `from_dict()`.
+Every type implements `draw(cr)`, `bounds()`, `hit_test(pt, tol)`, `handles()`,
+`move(dx, dy)`, `set_handle(handle, pt)`, plus `to_dict()` / `from_dict()` and
+`state()` / `restore()` for undo.
+
+Annotations are declared `@dataclass(eq=False)`, i.e. compared by **identity**. This is
+load-bearing, not a detail: with dataclass value equality two boxes of identical
+geometry compare equal, so `document.annotations.index()` and `.remove()` match
+whichever comes first — deleting one of a pair deleted the wrong one and undo restored
+it at the wrong z-position. `restore()` also mutates **in place** rather than returning a
+new object, so the selection and any pending command keep valid references across an undo.
 Adding a new tool later = one dataclass + one tool class + registry entry; nothing else
 changes. This is the main extension seam.
 
@@ -329,9 +343,10 @@ Each phase ends with a runnable app and is approved separately.
 1. **Bootstrap, skeleton & viewing** — venv setup (§2) and `run.sh`; app/window/canvas,
    Pillow+GdkPixbuf loader, PIL↔Cairo bridge, zoom/pan, CLI arg, drag-and-drop,
    PNG export of an unannotated image. ✅ done
-2. **Annotation engine** — `annotations.py`, `geometry.py`, `history.py`, `render.py`,
-   Select tool (move/resize/delete/reorder), style sidebar. No new tools yet; proves the
-   extension seam.
+2. **Annotation engine** — `annotations.py`, `geometry.py`, `history.py`, Select tool
+   (move/resize/marquee/reorder/delete), style sidebar, tool strip. Ships one concrete
+   kind, **Box**, with its creation tool: the engine is not demonstrable or testable
+   without something to select, and Box is the reference the phase 3 tools copy. ✅ done
 3. **The five core tools** — highlight, redact (solid), underline, arrow, text.
 4. **Save & export** — flatten pipeline, format/quality options, `.ganot8` container,
    metadata stripping, overwrite-original with confirmation, project warning banner,
