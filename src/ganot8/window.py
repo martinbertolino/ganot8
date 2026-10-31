@@ -6,10 +6,18 @@ import logging
 from pathlib import Path
 
 from . import gi_init  # noqa: F401
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from . import APP_NAME
-from .annotations import STYLE_COLOR, STYLE_FILLED, STYLE_OPACITY, STYLE_STROKE_WIDTH
+from .annotations import (
+    STYLE_BACKGROUND,
+    STYLE_COLOR,
+    STYLE_FILLED,
+    STYLE_FONT,
+    STYLE_OPACITY,
+    STYLE_STROKE_WIDTH,
+    STYLE_WAVY,
+)
 from .canvas import Canvas
 from .document import Document
 from .history import Reorder, StateChange
@@ -17,6 +25,17 @@ from .imageio import exporter
 from .imageio.loader import UnsupportedImageError, load
 
 log = logging.getLogger(__name__)
+
+#: Style attributes the sidebar has a widget for.
+_STYLE_WIDGET_KEYS = (
+    STYLE_COLOR,
+    STYLE_FONT,
+    STYLE_STROKE_WIDTH,
+    STYLE_OPACITY,
+    STYLE_FILLED,
+    STYLE_WAVY,
+    STYLE_BACKGROUND,
+)
 
 _OPENABLE_MIME = (
     "image/png",
@@ -46,6 +65,8 @@ class Window(Adw.ApplicationWindow):
         self._history_handler = 0
         #: Guards against style widgets echoing their own programmatic updates.
         self._syncing = False
+        self._text_popover: Gtk.Popover | None = None
+        self._text_cancelled = False
 
         self._build_ui()
         self._install_actions()
@@ -165,6 +186,7 @@ class Window(Adw.ApplicationWindow):
         self._canvas.connect("zoom-changed", self._on_zoom_changed)
         self._canvas.connect("selection-changed", self._on_selection_changed)
         self._canvas.connect("tool-changed", self._on_tool_changed)
+        self._canvas.connect("text-edit-requested", self._on_text_edit_requested)
 
         self._scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
         self._scroller.add_css_class("ganot8-canvas-area")
@@ -227,6 +249,14 @@ class Window(Adw.ApplicationWindow):
         self._colour_row.set_activatable_widget(self._colour_button)
         self._style_group.add(self._colour_row)
 
+        self._font_button = Gtk.FontDialogButton(dialog=Gtk.FontDialog())
+        self._font_button.set_valign(Gtk.Align.CENTER)
+        self._font_button.connect("notify::font-desc", self._on_font_changed)
+        self._font_row = Adw.ActionRow(title="Font")
+        self._font_row.add_suffix(self._font_button)
+        self._font_row.set_activatable_widget(self._font_button)
+        self._style_group.add(self._font_row)
+
         self._width_row = Adw.SpinRow(
             title="Line Width",
             adjustment=Gtk.Adjustment(value=3, lower=1, upper=40, step_increment=1),
@@ -245,6 +275,16 @@ class Window(Adw.ApplicationWindow):
         self._filled_row = Adw.SwitchRow(title="Filled")
         self._filled_row.connect("notify::active", self._on_filled_changed)
         self._style_group.add(self._filled_row)
+
+        self._wavy_row = Adw.SwitchRow(title="Wavy")
+        self._wavy_row.connect("notify::active", self._on_wavy_changed)
+        self._style_group.add(self._wavy_row)
+
+        self._background_row = Adw.SwitchRow(
+            title="Background", subtitle="Draw a plate behind the text"
+        )
+        self._background_row.connect("notify::active", self._on_background_changed)
+        self._style_group.add(self._background_row)
 
         arrange = Adw.PreferencesGroup(title="Arrange")
         page.add(arrange)
@@ -434,38 +474,51 @@ class Window(Adw.ApplicationWindow):
             subjects = self._style_subjects()
             if subjects:
                 reference = subjects[0]
-                colour = reference.color
-                width = reference.stroke_width
-                opacity = reference.opacity
-                filled = bool(getattr(reference, "filled", False))
+                values = {key: getattr(reference, key, None) for key in _STYLE_WIDGET_KEYS}
                 properties = reference.style_properties
                 count = len(subjects)
+                kinds = {s.label for s in subjects}
+                what = next(iter(kinds)) if len(kinds) == 1 else "annotation"
                 self._selection_label.set_text(
-                    f"{count} annotation{'s' if count != 1 else ''} selected."
+                    f"{count} {what.lower()}{'s' if count != 1 else ''} selected."
                 )
             else:
-                style = self._canvas.tool_style
-                colour = style["color"]
-                width = style["stroke_width"]
-                opacity = style["opacity"]
-                filled = bool(style["filled"])
+                style = self._canvas.current_style()
+                values = {key: style.get(key) for key in _STYLE_WIDGET_KEYS}
+                properties = self._canvas.current_style_properties()
                 tool = self._canvas.tool
-                properties = (STYLE_COLOR, STYLE_STROKE_WIDTH, STYLE_OPACITY, STYLE_FILLED)
-                label = tool.label if tool is not None else ""
-                self._selection_label.set_text(
-                    f"No selection. Changes apply to new {label} annotations."
-                )
+                if properties:
+                    self._selection_label.set_text(
+                        f"No selection. Changes apply to the next {tool.label.lower()}."
+                    )
+                else:
+                    self._selection_label.set_text(
+                        "Pick a tool and drag on the image to add an annotation."
+                    )
 
+            colour = values.get(STYLE_COLOR) or (0, 0, 0, 1)
             red, green, blue, alpha = colour
             self._colour_button.set_rgba(Gdk.RGBA(red=red, green=green, blue=blue, alpha=alpha))
-            self._width_row.set_value(float(width))
-            self._opacity_row.set_value(round(float(opacity) * 100))
-            self._filled_row.set_active(filled)
+            font = values.get(STYLE_FONT)
+            if font:
+                self._font_button.set_font_desc(Pango.FontDescription.from_string(font))
+            self._width_row.set_value(float(values.get(STYLE_STROKE_WIDTH) or 3.0))
+            self._opacity_row.set_value(round(float(values.get(STYLE_OPACITY) or 1.0) * 100))
+            self._filled_row.set_active(bool(values.get(STYLE_FILLED)))
+            self._wavy_row.set_active(bool(values.get(STYLE_WAVY)))
+            self._background_row.set_active(bool(values.get(STYLE_BACKGROUND)))
 
-            self._colour_row.set_visible(STYLE_COLOR in properties)
-            self._width_row.set_visible(STYLE_STROKE_WIDTH in properties)
-            self._opacity_row.set_visible(STYLE_OPACITY in properties)
-            self._filled_row.set_visible(STYLE_FILLED in properties)
+            for key, row in (
+                (STYLE_COLOR, self._colour_row),
+                (STYLE_FONT, self._font_row),
+                (STYLE_STROKE_WIDTH, self._width_row),
+                (STYLE_OPACITY, self._opacity_row),
+                (STYLE_FILLED, self._filled_row),
+                (STYLE_WAVY, self._wavy_row),
+                (STYLE_BACKGROUND, self._background_row),
+            ):
+                row.set_visible(key in properties)
+            self._style_group.set_visible(bool(properties))
         finally:
             self._syncing = False
 
@@ -475,13 +528,13 @@ class Window(Adw.ApplicationWindow):
             return
         subjects = [s for s in self._style_subjects() if hasattr(s, attribute)]
         if not subjects:
-            self._canvas.tool_style[attribute] = value
+            self._canvas.current_style()[attribute] = value
             return
         before = [s.state() for s in subjects]
         for subject in subjects:
             setattr(subject, attribute, value)
-        # Keep the defaults in step, so the next annotation matches.
-        self._canvas.tool_style[attribute] = value
+        # Keep the active tool's memory in step, so the next one matches.
+        self._canvas.current_style()[attribute] = value
         self._document.history.push(
             StateChange(self._document, subjects, before, label=label)
         )
@@ -500,6 +553,17 @@ class Window(Adw.ApplicationWindow):
 
     def _on_filled_changed(self, row: Adw.SwitchRow, _param) -> None:
         self._apply_style("filled", bool(row.get_active()), "Change Fill")
+
+    def _on_wavy_changed(self, row: Adw.SwitchRow, _param) -> None:
+        self._apply_style("wavy", bool(row.get_active()), "Change Underline")
+
+    def _on_background_changed(self, row: Adw.SwitchRow, _param) -> None:
+        self._apply_style("background", bool(row.get_active()), "Change Background")
+
+    def _on_font_changed(self, button: Gtk.FontDialogButton, _param) -> None:
+        description = button.get_font_desc()
+        if description is not None:
+            self._apply_style("font", description.to_string(), "Change Font")
 
     # -- actions ---------------------------------------------------------
 
@@ -636,6 +700,86 @@ class Window(Adw.ApplicationWindow):
             )
             self._banner.set_revealed(True)
         return self.open_path(paths[0])
+
+    # -- text editing ----------------------------------------------------
+
+    def _on_text_edit_requested(self, _canvas, annotation) -> None:
+        """Open an editor over the label.
+
+        A popover anchored to the label is used rather than a text widget
+        embedded in the canvas: it keeps working at any zoom or scroll offset,
+        handles multi-line input, and is the familiar GNOME idiom.
+        """
+        popover = Gtk.Popover(autohide=True, has_arrow=True)
+        popover.set_parent(self._canvas)
+        popover.set_pointing_to(self._editor_anchor(annotation))
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+
+        scroller = Gtk.ScrolledWindow(min_content_width=280, min_content_height=90)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.add_css_class("card")
+        view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        view.set_top_margin(6)
+        view.set_bottom_margin(6)
+        view.set_left_margin(6)
+        view.set_right_margin(6)
+        view.get_buffer().set_text(annotation.text)
+        scroller.set_child(view)
+        box.append(scroller)
+
+        hint = Gtk.Label(label="Escape cancels", xalign=0)
+        hint.add_css_class("dim-label")
+        hint.add_css_class("caption")
+        box.append(hint)
+
+        apply_button = Gtk.Button(label="Apply")
+        apply_button.add_css_class("suggested-action")
+        apply_button.connect("clicked", lambda *_: popover.popdown())
+        box.append(apply_button)
+
+        popover.set_child(box)
+        self._text_popover = popover
+        self._text_cancelled = False
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self._on_text_editor_key, popover)
+        view.add_controller(keys)
+        popover.connect("closed", self._on_text_editor_closed, view)
+
+        popover.popup()
+        view.grab_focus()
+
+    def _editor_anchor(self, annotation) -> Gdk.Rectangle:
+        bounds = annotation.bounds().normalized()
+        x, y = self._canvas.image_to_widget(bounds.x, bounds.y)
+        rectangle = Gdk.Rectangle()
+        rectangle.x = int(x)
+        rectangle.y = int(y)
+        rectangle.width = max(1, int(bounds.width * self._canvas.zoom))
+        rectangle.height = max(1, int(bounds.height * self._canvas.zoom))
+        return rectangle
+
+    def _on_text_editor_key(self, _controller, keyval, _keycode, _state, popover) -> bool:
+        if keyval == Gdk.KEY_Escape:
+            self._text_cancelled = True
+            popover.popdown()
+            return Gdk.EVENT_STOP
+        return Gdk.EVENT_PROPAGATE
+
+    def _on_text_editor_closed(self, popover: Gtk.Popover, view: Gtk.TextView) -> None:
+        if self._text_cancelled:
+            self._canvas.cancel_text_edit()
+        else:
+            buffer = view.get_buffer()
+            text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+            self._canvas.commit_text_edit(text)
+        popover.unparent()
+        self._text_popover = None
 
     # -- feedback --------------------------------------------------------
 

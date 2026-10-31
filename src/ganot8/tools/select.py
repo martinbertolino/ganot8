@@ -10,6 +10,7 @@ import cairo
 from .. import gi_init  # noqa: F401
 from gi.repository import Gdk
 
+from ..annotations import TextLabel
 from ..geometry import HANDLE_CURSORS, Handle, Point, Rect
 from ..history import StateChange
 from .base import Tool, register
@@ -32,7 +33,7 @@ class SelectTool(Tool):
 
     name: ClassVar[str] = "select"
     label: ClassVar[str] = "Select"
-    icon_name: ClassVar[str] = "pointer-primary-click-symbolic"
+    icon_name: ClassVar[str] = "edit-select-symbolic"
     accelerator: ClassVar[str] = "s"
     tooltip: ClassVar[str] = "Select, move and resize annotations (S)"
     cursor: ClassVar[str] = "default"
@@ -141,6 +142,16 @@ class SelectTool(Tool):
             )
         self._reset()
         self.canvas.queue_draw()
+
+    def on_double_click(self, point: Point, state) -> None:
+        """Double-clicking a text label reopens it for editing."""
+        document = self.document
+        if document is None:
+            return
+        hit = document.annotation_at(point, self.canvas.hit_tolerance)
+        if isinstance(hit, TextLabel):
+            self.canvas.set_selection([hit])
+            self.canvas.begin_text_edit(hit, is_new=False)
 
     def cursor_for(self, point: Point, state) -> str | None:
         document = self.document

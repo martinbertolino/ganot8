@@ -242,8 +242,7 @@ def test_shift_constrains_the_box_to_a_square(canvas):
 
 
 def test_new_annotations_take_the_current_tool_style(canvas):
-    canvas.tool_style["color"] = (0.0, 0.0, 1.0, 1.0)
-    canvas.tool_style["stroke_width"] = 8.0
+    canvas.style_for("box").update({"color": (0.0, 0.0, 1.0, 1.0), "stroke_width": 8.0})
     canvas.activate_tool("box")
     drag(canvas, (0, 0), (50, 50))
     created = canvas.document.annotations[0]

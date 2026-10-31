@@ -65,6 +65,10 @@ def test_has_redactions_detects_the_kind():
     document = make_document()
     assert not document.has_redactions
     document.annotations_from_list([{"kind": "redact", "rect": [0, 0, 5, 5]}])
-    # Not implemented until phase 3, so it loads as unknown and must not
-    # masquerade as a real redaction.
+    assert document.has_redactions
+
+
+def test_has_redactions_ignores_other_kinds():
+    document = make_document()
+    document.annotations_from_list([{"kind": "highlight", "rect": [0, 0, 5, 5]}])
     assert not document.has_redactions

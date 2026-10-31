@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 
 from ganot8 import gi_init  # noqa: F401
-from gi.repository import Adw, Gdk, Gtk
+from gi.repository import Adw, Gdk, Gtk, Pango
 
 from ganot8.annotations import Box
 from ganot8.document import Document
@@ -133,9 +133,10 @@ def test_changing_style_with_a_selection_edits_it_undoably(window):
 
 
 def test_changing_style_without_a_selection_sets_the_default(window):
+    window.canvas.activate_tool("box")
     window.canvas.clear_selection()
     window._width_row.set_value(7.0)
-    assert window.canvas.tool_style["stroke_width"] == pytest.approx(7.0)
+    assert window.canvas.style_for("box")["stroke_width"] == pytest.approx(7.0)
     # Nothing to edit, so nothing to undo.
     assert not window.document.history.can_undo
 
@@ -185,3 +186,107 @@ def test_unsupported_style_rows_are_hidden(window):
     window._sync_style_controls()
     assert not window._colour_row.get_visible()
     assert not window._width_row.get_visible()
+
+
+# -- phase 3 sidebar rows ------------------------------------------------
+
+
+def _visible_rows(window) -> set[str]:
+    return {
+        name
+        for name, row in (
+            ("colour", window._colour_row),
+            ("font", window._font_row),
+            ("width", window._width_row),
+            ("opacity", window._opacity_row),
+            ("filled", window._filled_row),
+            ("wavy", window._wavy_row),
+            ("background", window._background_row),
+        )
+        if row.get_visible()
+    }
+
+
+def test_sidebar_shows_only_the_rows_a_kind_supports(window):
+    from ganot8.annotations import Highlight, Redact, TextLabel, Underline
+
+    cases = {
+        Highlight(): {"colour", "opacity"},
+        Redact(): {"colour"},
+        Underline(): {"colour", "width", "opacity", "wavy"},
+        TextLabel(text="x"): {"colour", "font", "opacity", "background"},
+    }
+    for annotation, expected in cases.items():
+        window.document.annotations.append(annotation)
+        window.canvas.set_selection([annotation])
+        assert _visible_rows(window) == expected, type(annotation).__name__
+
+
+def test_redaction_offers_no_opacity_control(window):
+    """A translucent redaction leaks, so the control must not exist."""
+    from ganot8.annotations import Redact
+
+    redaction = Redact(rect=Rect(0, 0, 10, 10))
+    window.document.annotations.append(redaction)
+    window.canvas.set_selection([redaction])
+    assert not window._opacity_row.get_visible()
+
+
+def test_wavy_switch_edits_an_underline(window):
+    from ganot8.annotations import Underline
+    from ganot8.geometry import Point
+
+    underline = Underline(start=Point(0, 0), end=Point(50, 0))
+    window.document.annotations.append(underline)
+    window.canvas.set_selection([underline])
+    window._wavy_row.set_active(True)
+    assert underline.wavy is True
+    assert window.document.history.undo_label == "Change Underline"
+
+
+def test_font_change_applies_to_a_text_label(window):
+    from ganot8.annotations import TextLabel
+
+    label = TextLabel(text="hello", font="Sans 18")
+    window.document.annotations.append(label)
+    window.canvas.set_selection([label])
+    window._font_button.set_font_desc(Pango.FontDescription.from_string("Serif Bold 30"))
+    assert "Serif" in label.font and "30" in label.font
+
+
+def test_background_switch_edits_a_label(window):
+    from ganot8.annotations import TextLabel
+
+    label = TextLabel(text="hello")
+    window.document.annotations.append(label)
+    window.canvas.set_selection([label])
+    window._background_row.set_active(True)
+    assert label.background is True
+
+
+def test_style_group_hides_entirely_for_the_select_tool(window):
+    window.canvas.activate_tool("select")
+    window.canvas.clear_selection()
+    assert not window._style_group.get_visible()
+
+
+def test_style_group_appears_for_a_creation_tool(window):
+    window.canvas.activate_tool("highlight")
+    window.canvas.clear_selection()
+    assert window._style_group.get_visible()
+    assert _visible_rows(window) == {"colour", "opacity"}
+
+
+def test_every_tool_has_a_strip_button(window):
+    assert len(window._tool_buttons) == 7
+
+
+def test_every_tool_icon_exists_in_the_theme(window):
+    """A missing icon renders as a broken image with no warning at all."""
+    from gi.repository import Gdk as _Gdk
+
+    from ganot8.tools import registered_tools
+
+    theme = Gtk.IconTheme.get_for_display(_Gdk.Display.get_default())
+    missing = [tool.name for tool in registered_tools() if not theme.has_icon(tool.icon_name)]
+    assert missing == []

@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 2 complete · **Last updated:** 2026-10-31
+**Status:** Phase 3 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -288,6 +288,12 @@ RGBA (un-premultiply, BGRA→RGBA swap) → `Image.save()` with **no `exif=` and
    the hidden content. Irreversible beyond the undo stack, so it is confirmed via
    `Gtk.AlertDialog` and clears redo.
 
+`Redact` enforces rule 1 at the drawing level, not by convention: `draw()` hard-codes
+alpha to `1.0` and ignores both `opacity` and the alpha channel of `color`, and
+`STYLE_OPACITY` is absent from its `style_properties` so the sidebar never offers the
+control. A translucent redaction is not a redaction, and this makes that unexpressible
+rather than merely discouraged.
+
 Blur/pixelate strength has a sane floor (pixelate block ≥ 8px at image scale, blur
 radius scaled to region size) so a "redaction" can't be set to a cosmetically-blurred,
 trivially-reversible value. Solid block remains the default style, with a one-line hint
@@ -311,9 +317,19 @@ in the UI that solid is the safe choice for sensitive data.
 - **Toasts** for export success (with a "Show in Files" action) and errors.
 
 Behaviour: drawing a shape selects it and switches back to Select (so it can be
-immediately adjusted); selection shows 8 resize handles plus endpoint handles for
-arrow/underline; Escape cancels an in-progress drag; arrow keys nudge 1px, Shift+arrow
-10px; Shift constrains to square/45°; double-click a text label to edit in place.
+immediately adjusted); selection shows 8 resize handles, or endpoint handles for
+arrow/underline and horizontal wrap-width handles for text; Escape cancels an
+in-progress drag; arrow keys nudge 1px, Shift+arrow 10px; Shift constrains to
+square/45°; an underline is always forced horizontal, since a sloping one is never
+intended.
+
+**Text editing** uses a `Gtk.Popover` anchored to the label rather than a text widget
+embedded in the canvas. Double-clicking a label reopens it. This is a deliberate
+departure from literal in-place editing: a popover keeps working at any zoom and scroll
+offset, handles multi-line input, and is the familiar GNOME idiom, whereas an embedded
+editor would have to track the zoom/pan transform itself. Committing empty text deletes
+the label instead of leaving an invisible annotation behind, and Escape restores the
+previous text.
 
 Undo/redo is a command stack covering every mutation including crop, rotate, reorder,
 style changes, and burn-in. A drag emits one coalesced command on release, not one per
@@ -329,6 +345,9 @@ motion event.
 
 ## 9. Settings (GSettings, schema `io.github.martinb.Ganot8`)
 
+Style is remembered **per tool** (`Canvas.style_for(name)`), seeded from each
+annotation kind's own dataclass defaults — so Highlight starts translucent yellow while
+Redact starts opaque black, without either having to be special-cased in the UI.
 Last-used colour/width/alpha/font per tool, default redact style, default export format
 and JPEG quality, export filename pattern (default `{stem}-annotated.{ext}`), confirm
 overwrite, window geometry. Loaded through `settings.py`, which falls back to an
@@ -347,7 +366,7 @@ Each phase ends with a runnable app and is approved separately.
    (move/resize/marquee/reorder/delete), style sidebar, tool strip. Ships one concrete
    kind, **Box**, with its creation tool: the engine is not demonstrable or testable
    without something to select, and Box is the reference the phase 3 tools copy. ✅ done
-3. **The five core tools** — highlight, redact (solid), underline, arrow, text.
+3. **The five core tools** — highlight, redact (solid), underline, arrow, text. ✅ done
 4. **Save & export** — flatten pipeline, format/quality options, `.ganot8` container,
    metadata stripping, overwrite-original with confirmation, project warning banner,
    burn-in action.
@@ -369,6 +388,9 @@ Each phase ends with a runnable app and is approved separately.
   **privacy
   assertions** — exported file carries no EXIF/XMP/ICC, and pixels under a solid
   redaction equal the fill colour exactly; burn-in mutates `source`.
+- **Icon existence:** a test asserts every tool's `icon_name` resolves in the icon
+  theme. GTK substitutes a broken-image glyph for a missing icon and logs nothing, so
+  this is invisible without an explicit check.
 - **Offscreen render check:** `devtools/render_preview.py` drives the real
   `Canvas._on_draw` into an image surface and writes PNGs at several zoom levels.
   This exists because the canvas **cannot be screenshotted automatically** on this

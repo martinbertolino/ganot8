@@ -76,6 +76,9 @@ class Tool:
     def on_motion(self, point: Point, state) -> None:
         """Pointer moved with no button held; used for cursor feedback."""
 
+    def on_double_click(self, point: Point, state) -> None:
+        """Pointer double-clicked at ``point``."""
+
     def cursor_for(self, point: Point, state) -> str | None:
         """Cursor name for the pointer at ``point``."""
         return self.cursor

@@ -14,10 +14,10 @@ import cairo
 from .. import gi_init  # noqa: F401
 from gi.repository import Gdk
 
-from ..annotations import Box
-from ..geometry import Point, Rect
+from ..annotations import Arrow, Box
+from ..geometry import Point, Rect, constrain_to_axis
 from ..history import AddAnnotations
-from .base import Tool, register
+from .base import Tool
 
 #: A drag smaller than this (in image pixels) is treated as a stray click.
 _MINIMUM_SIZE = 3.0
@@ -42,7 +42,7 @@ class RectangleTool(Tool):
     def make_annotation(self, rect: Rect):
         """Build the annotation. Subclasses override to set their own style."""
         annotation = self.annotation_type(rect=rect)
-        self.canvas.apply_tool_style(annotation)
+        self.canvas.apply_style_to(annotation)
         return annotation
 
     def on_drag_begin(self, point: Point, state) -> None:
@@ -96,7 +96,76 @@ class RectangleTool(Tool):
             cr.restore()
 
 
-@register
+class LineTool(Tool):
+    """Shared behaviour for tools that drag out a two-point annotation."""
+
+    annotation_type: ClassVar[type] = Arrow
+    create_label: ClassVar[str] = "Add Line"
+    #: True to snap the line to horizontal while dragging (underlines).
+    horizontal: ClassVar[bool] = False
+
+    def __init__(self, canvas):
+        super().__init__(canvas)
+        self._origin: Point | None = None
+        self._pending = None
+
+    def deactivate(self) -> None:
+        self._origin = None
+        self._pending = None
+        self.canvas.queue_draw()
+
+    def make_annotation(self, start: Point, end: Point):
+        annotation = self.annotation_type(start=start, end=end)
+        self.canvas.apply_style_to(annotation)
+        return annotation
+
+    def on_drag_begin(self, point: Point, state) -> None:
+        if self.document is None:
+            return
+        self._origin = point
+        self._pending = self.make_annotation(point, point)
+
+    def on_drag_update(self, point: Point, state) -> None:
+        if self._origin is None or self._pending is None:
+            return
+        self._pending.end = self._resolve_end(point, state)
+        self.canvas.queue_draw()
+
+    def _resolve_end(self, point: Point, state) -> Point:
+        if self.horizontal:
+            # An underline that slopes is almost never what was meant.
+            return Point(point.x, self._origin.y)
+        if state & Gdk.ModifierType.SHIFT_MASK:
+            return constrain_to_axis(self._origin, point)
+        return point
+
+    def on_drag_end(self, point: Point, state) -> None:
+        document = self.document
+        pending = self._pending
+        self._origin = None
+        self._pending = None
+        if document is None or pending is None:
+            return
+
+        if pending.length < _MINIMUM_SIZE:
+            self.canvas.queue_draw()
+            return
+
+        document.history.push(AddAnnotations(document, [pending], label=self.create_label))
+        self.canvas.set_selection([pending])
+        self.canvas.activate_tool("select")
+
+    def draw_overlay(self, cr: cairo.Context, zoom: float) -> None:
+        if self._pending is None:
+            return
+        cr.save()
+        cr.scale(zoom, zoom)
+        try:
+            self._pending.draw(cr)
+        finally:
+            cr.restore()
+
+
 class BoxTool(RectangleTool):
     name: ClassVar[str] = "box"
     label: ClassVar[str] = "Box"

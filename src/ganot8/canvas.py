@@ -18,8 +18,9 @@ from . import gi_init  # noqa: F401
 from gi.repository import Gdk, GLib, GObject, Gtk
 
 from . import render
+from .annotations import STYLE_KEYS, TextLabel
 from .geometry import Point, Rect
-from .history import RemoveAnnotations
+from .history import AddAnnotations, RemoveAnnotations, StateChange
 from .tools import registered_tools
 
 ZOOM_MIN = 0.1
@@ -36,11 +37,12 @@ HANDLE_SIZE_PX = 9.0
 HIT_TOLERANCE_PX = 4.0
 _SELECT_RGBA = (0.21, 0.52, 0.89, 1.0)
 
-DEFAULT_TOOL_STYLE: dict[str, object] = {
+#: Used for tools that create nothing (Select), so the sidebar always has
+#: something coherent to show.
+FALLBACK_STYLE: dict[str, object] = {
     "color": (0.90, 0.16, 0.16, 1.0),
     "stroke_width": 3.0,
     "opacity": 1.0,
-    "filled": False,
 }
 
 
@@ -53,6 +55,8 @@ class Canvas(Gtk.DrawingArea):
         "zoom-changed": (GObject.SignalFlags.RUN_FIRST, None, (float,)),
         "selection-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
         "tool-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # Carries the TextLabel to edit; the window answers by showing an editor.
+        "text-edit-requested": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
     }
 
     def __init__(self):
@@ -68,7 +72,10 @@ class Canvas(Gtk.DrawingArea):
         self._tools: dict[str, object] = {}
         self._tool = None
         self._drag_start: tuple[float, float] | None = None
-        self.tool_style = dict(DEFAULT_TOOL_STYLE)
+        #: Last-used style per tool, so switching tools keeps each one's
+        #: settings (docs/SPEC.md section 9).
+        self._tool_styles: dict[str, dict] = {}
+        self._text_edit: dict | None = None
 
         self.set_halign(Gtk.Align.CENTER)
         self.set_valign(Gtk.Align.CENTER)
@@ -113,6 +120,10 @@ class Canvas(Gtk.DrawingArea):
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self._on_key_pressed)
         self.add_controller(keys)
+
+        clicks = Gtk.GestureClick(button=Gdk.BUTTON_PRIMARY)
+        clicks.connect("pressed", self._on_click_pressed)
+        self.add_controller(clicks)
 
         primary = Gtk.GestureDrag(button=Gdk.BUTTON_PRIMARY)
         primary.connect("drag-begin", self._on_primary_begin)
@@ -212,13 +223,93 @@ class Canvas(Gtk.DrawingArea):
         self.emit("tool-changed", name)
         self.queue_draw()
 
-    def apply_tool_style(self, annotation) -> None:
-        """Stamp the current style settings onto a newly created annotation."""
-        annotation.color = tuple(self.tool_style["color"])  # type: ignore[arg-type]
-        annotation.stroke_width = float(self.tool_style["stroke_width"])  # type: ignore[arg-type]
-        annotation.opacity = float(self.tool_style["opacity"])  # type: ignore[arg-type]
-        if hasattr(annotation, "filled"):
-            annotation.filled = bool(self.tool_style["filled"])
+    # -- per-tool style --------------------------------------------------
+
+    def style_for(self, name: str) -> dict:
+        """The remembered style for one tool, seeded from its annotation kind."""
+        if name not in self._tool_styles:
+            self._tool_styles[name] = self._default_style_for(name)
+        return self._tool_styles[name]
+
+    def current_style(self) -> dict:
+        return self.style_for(self.tool_name)
+
+    def current_style_properties(self) -> tuple[str, ...]:
+        """Which style rows apply to what the active tool creates."""
+        annotation_type = getattr(self._tool, "annotation_type", None)
+        return annotation_type.style_properties if annotation_type is not None else ()
+
+    def _default_style_for(self, name: str) -> dict:
+        style = dict(FALLBACK_STYLE)
+        annotation_type = getattr(self._tools.get(name), "annotation_type", None)
+        if annotation_type is not None:
+            # Seed from the kind's own defaults, so Highlight starts yellow and
+            # translucent while Redact starts opaque black.
+            sample = annotation_type()
+            for key in STYLE_KEYS:
+                if hasattr(sample, key):
+                    style[key] = getattr(sample, key)
+        return style
+
+    def apply_style_to(self, annotation) -> None:
+        """Stamp the active tool's remembered style onto a new annotation."""
+        for key, value in self.current_style().items():
+            if hasattr(annotation, key):
+                setattr(annotation, key, value)
+
+    # -- text editing ----------------------------------------------------
+
+    @property
+    def editing_text(self):
+        """The TextLabel currently being edited, if any."""
+        return self._text_edit["annotation"] if self._text_edit else None
+
+    def begin_text_edit(self, annotation, *, is_new: bool) -> None:
+        """Ask the window to open a text editor for ``annotation``."""
+        if self._document is None:
+            return
+        self._text_edit = {
+            "annotation": annotation,
+            "is_new": is_new,
+            "before": annotation.state(),
+        }
+        self.emit("text-edit-requested", annotation)
+
+    def commit_text_edit(self, text: str) -> None:
+        """Apply edited text, as a single undoable step."""
+        session, self._text_edit = self._text_edit, None
+        if session is None or self._document is None:
+            return
+        annotation = session["annotation"]
+        document = self._document
+        text = text.strip()
+
+        if session["is_new"]:
+            if text:
+                annotation.text = text
+                document.history.push(
+                    AddAnnotations(document, [annotation], label="Add Text")
+                )
+                self.set_selection([annotation])
+            self.activate_tool("select")
+        elif not text:
+            # Emptying a label deletes it, rather than leaving an invisible one.
+            self.set_selection([])
+            document.history.push(
+                RemoveAnnotations(document, [annotation], label="Delete Text")
+            )
+        elif text != annotation.text:
+            annotation.text = text
+            document.history.push(
+                StateChange(document, [annotation], [session["before"]], label="Edit Text")
+            )
+        self.queue_draw()
+
+    def cancel_text_edit(self) -> None:
+        session, self._text_edit = self._text_edit, None
+        if session is not None and not session["is_new"]:
+            session["annotation"].restore(session["before"])
+        self.queue_draw()
 
     # -- zoom ------------------------------------------------------------
 
@@ -419,6 +510,13 @@ class Canvas(Gtk.DrawingArea):
         if self._tool is not None and self._tool.on_key(keyval, state):
             return Gdk.EVENT_STOP
         return Gdk.EVENT_PROPAGATE
+
+    def _on_click_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        if n_press != 2 or self._tool is None or self._document is None:
+            return
+        self._tool.on_double_click(
+            self.widget_to_image(x, y), gesture.get_current_event_state()
+        )
 
     # -- primary button: tool or pan -------------------------------------
 

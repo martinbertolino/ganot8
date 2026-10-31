@@ -35,6 +35,11 @@ _ACCELERATORS = {
 #: Single-key tool shortcuts, bound to the stateful "win.tool" action.
 _TOOL_ACCELERATORS = {
     "select": "s",
+    "highlight": "h",
+    "redact": "r",
+    "underline": "u",
+    "arrow": "a",
+    "text": "t",
     "box": "b",
 }
 
