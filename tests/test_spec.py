@@ -68,7 +68,15 @@ def test_every_registered_tool_has_a_documented_key(spec):
 def test_module_tree_matches_the_filesystem(spec):
     """Files listed in section 3 must exist; those tagged with a phase must not."""
     tree = spec.split("```\nganot8/")[1].split("```")[0]
-    search_dirs = ("src/ganot8", "src/ganot8/tools", "src/ganot8/imageio", "devtools", ".")
+    search_dirs = (
+        "src/ganot8",
+        "src/ganot8/tools",
+        "src/ganot8/imageio",
+        "src",
+        "devtools",
+        "meson",
+        ".",
+    )
 
     wrong = []
     for line in tree.splitlines():

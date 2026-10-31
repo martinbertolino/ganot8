@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 6 complete · **Last updated:** 2026-10-31
+**Status:** Phase 7 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -160,6 +160,10 @@ ganot8/
 │   ├── clipboard.py            # paste texture in, copy flattened out
 │   ├── shortcuts.py            # Adw.ShortcutsDialog built from the accel tables
 │   └── settings.py             # GSettings wrapper with in-memory fallback
+├── meson.build, meson.options  # installs package, launcher, data; -Dpython for the shebang
+├── meson/post-install.py       # refreshes desktop caches, skipped under DESTDIR
+├── io.github.martinb.Ganot8.yml   # Flatpak manifest (never built; see section 13)
+├── src/ganot8.in               # launcher template, configured with the install paths
 ├── install-user.sh             # registers the app under ~/.local; --uninstall undoes it
 ├── data/
 │   ├── icons/hicolor/scalable/{actions,apps}/   # symbolic tool icons + app icon
@@ -500,7 +504,42 @@ Each phase ends with a runnable app and is approved separately.
    entry + app icon + MIME association for `.ganot8`, `Adw.ShortcutsDialog` behind `F1`,
    and GSettings persistence. `install-user.sh` registers all of it under `~/.local`
    without root, and `--uninstall` takes it back out. ✅ done
-7. **Packaging (deferred)** — Meson build, GResource-bundled UI, Flatpak manifest.
+7. **Packaging** — Meson build installing the package, launcher, desktop entry, icons,
+   MIME rule, schema and AppStream metadata; icons bundled as a GResource; Flatpak
+   manifest. ✅ done, except the Flatpak manifest is unverified (section 13).
+
+## 10a. Installing
+
+Three ways, in increasing order of commitment:
+
+- **From the source tree** — `./run.sh`. Bootstraps the venv, compiles the settings
+  schema, and runs in place. Nothing is installed.
+- **For one user** — `./install-user.sh` registers the desktop entry, icon, MIME rule
+  and schema under `~/.local`, with no root. `--uninstall` reverses it.
+- **System-wide** — Meson:
+
+  ```bash
+  meson setup _build --prefix=/usr -Dpython=/usr/bin/python3
+  meson compile -C _build && meson test -C _build
+  sudo meson install -C _build
+  ```
+
+The Python package installs into a private `$libdir/ganot8` rather than
+`site-packages`: Ganot8 is an application, not a library, and nothing should be able to
+import it by accident. The launcher is generated at configure time because it has to
+carry the chosen paths — a script with `/usr` baked in is wrong for every other prefix.
+
+`-Dpython` matters more than it looks. Left unset, `find_program('python3')` happily
+resolves to a version manager's shim — it did exactly that here, picking up
+`~/.pyenv/shims/python3`. That shim resolves through the *building* user's
+configuration, not the user who will run the application, so the build warns when it
+sees one.
+
+Icons are bundled into a **GResource** and loaded from a resource path, so an installed
+build does not depend on the icon cache having been refreshed before its first run —
+a common way for a freshly installed application to come up with broken icons.
+`resources.py` tries the bundle first and falls back to the source tree, which is how
+the same code serves both `./run.sh` and an installed copy.
 
 ## 11. Verification
 
@@ -511,7 +550,7 @@ The suite splits in two, and the distinction matters for CI:
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_effects`,
   `test_shapes_extra`, `test_reshape`, `test_settings`, `test_clipboard`,
-  `test_portal`, `test_desktop_files`, `test_spec`.
+  `test_portal`, `test_desktop_files`, `test_packaging`, `test_spec`.
 - **Needs a display** — `test_tools`, `test_core_tools`, `test_window`,
   `test_centering`. These construct real GTK widgets, and `test_centering` presents a
   real toplevel and drives genuine allocation cycles. Run `./run-tests.sh` for the
@@ -618,6 +657,15 @@ libadwaita bug report rather than a workaround here.
 reporting success on a partial suite — but nothing runs it automatically. A pipeline
 needs `xorg-x11-server-Xvfb` installed on the runner, or the four widget modules go
 unrun.
+
+### The Flatpak manifest has never been built
+
+`io.github.martinb.Ganot8.yml` is written and its source URLs and checksums were fetched
+from PyPI and are correct, but `flatpak-builder` is not installed on the development
+machine, no GNOME runtime is present, and the Flathub remote is filtered — so the build
+steps are conventional but unproven. The manifest says so in its own header rather than
+implying otherwise. Verifying it needs `flatpak-builder` and
+`flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49`.
 
 ### Crop has no adjustable region
 

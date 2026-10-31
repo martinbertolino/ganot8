@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.martinb.Ganot8</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <developer id="io.github.martinb">
+    <name>Martin Bertolino</name>
+  </developer>
+
+  <url type="homepage">https://github.com/martinb/ganot8</url>
+  <url type="bugtracker">https://github.com/martinb/ganot8/issues</url>
+
+  <name>Ganot8</name>
+  <summary>Annotate, highlight and redact images</summary>
+
+  <description>
+    <p>
+      Ganot8 marks up a screenshot and hands it to someone else. Highlight a
+      region, block out a password, underline a line of log output, point at a
+      button with an arrow, and add a short label.
+    </p>
+    <p>
+      Redaction is treated as a privacy feature rather than a drawing tool. An
+      exported image contains composited pixels only, with source metadata
+      removed, so a redacted region cannot be recovered from the file you send.
+      Blur and pixelate have a minimum strength, because a lightly smudged
+      region is still readable.
+    </p>
+    <p>Annotations stay editable:</p>
+    <ul>
+      <li>Highlight, redact, underline, arrow, text, box, ellipse, freehand and numbered badges</li>
+      <li>Move, resize, restyle and reorder anything you have drawn, with full undo</li>
+      <li>Crop and rotate, carrying the annotations with the image</li>
+      <li>Save an editable project, or export to PNG, JPEG, WebP, AVIF, GIF, TIFF or BMP</li>
+      <li>Paste from the clipboard, or capture the screen through the desktop portal</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.martinb.Ganot8.desktop</launchable>
+
+  <categories>
+    <category>Graphics</category>
+    <category>2DGraphics</category>
+    <category>RasterGraphics</category>
+  </categories>
+
+  <keywords>
+    <keyword>annotate</keyword>
+    <keyword>screenshot</keyword>
+    <keyword>redact</keyword>
+    <keyword>highlight</keyword>
+    <keyword>markup</keyword>
+  </keywords>
+
+  <provides>
+    <binary>ganot8</binary>
+  </provides>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-31">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

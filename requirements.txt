@@ -10,4 +10,6 @@ pillow-heif==1.8.1
 
 # dev
 pytest==9.0.1
+meson==1.12.1        # phase 7 build; ninja comes from the distro
+pyyaml==6.0.3        # only to validate the Flatpak manifest in tests
 pygobject-stubs==2.20.0

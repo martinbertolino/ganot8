@@ -124,3 +124,28 @@ def test_the_shipped_schema_matches_the_fallback_defaults():
         for key in ElementTree.parse(xml).getroot().iter("key")
     }
     assert keys == set(DEFAULTS), "schema keys and fallback defaults have diverged"
+
+
+def test_the_suite_never_writes_real_settings():
+    """conftest forces GSETTINGS_BACKEND=memory before Gio is imported.
+
+    Without it, windows created by tests save their state on close into the
+    developer's own dconf, and later tests read it back - which made an
+    unrelated sidebar test fail depending on what had run before, and quietly
+    changed the developer's settings as a side effect of running the suite.
+    """
+    import os
+
+    from gi.repository import Gio
+
+    assert os.environ.get("GSETTINGS_BACKEND") == "memory"
+    backend = type(Gio.SettingsBackend.get_default()).__name__
+    assert "Memory" in backend, f"settings would reach the real database via {backend}"
+
+
+def test_settings_still_read_and_write_under_the_memory_backend():
+    """The isolation must not make the GSettings path untested."""
+    live = Settings()
+    assert live.persistent, "the schema should still be found"
+    live.set_string("export-format", "TIFF")
+    assert live.get_string("export-format") == "TIFF"

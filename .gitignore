@@ -4,6 +4,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 data/schemas/gschemas.compiled
+data/*.gresource
 _build/
 _flatpak/
 .flatpak-builder/

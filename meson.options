@@ -1,0 +1,6 @@
+option(
+  'python',
+  type: 'string',
+  value: '',
+  description: 'Interpreter the installed launcher runs under. Empty means look up python3 on PATH, which may well find a version manager\'s shim rather than the system one.',
+)
