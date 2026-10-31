@@ -49,6 +49,9 @@ STYLE_WAVY = "wavy"
 STYLE_BACKGROUND = "background"
 STYLE_REDACT_STYLE = "style"
 STYLE_STRENGTH = "strength"
+STYLE_TEXT_COLOR = "text_color"
+STYLE_BACKGROUND_COLOR = "background_color"
+STYLE_PADDING = "padding"
 
 #: Every style key a sidebar row can edit, in the order they are shown.
 STYLE_KEYS = (
@@ -61,6 +64,9 @@ STYLE_KEYS = (
     STYLE_BACKGROUND,
     STYLE_REDACT_STYLE,
     STYLE_STRENGTH,
+    STYLE_TEXT_COLOR,
+    STYLE_BACKGROUND_COLOR,
+    STYLE_PADDING,
 )
 
 _REGISTRY: dict[str, type["Annotation"]] = {}
@@ -693,6 +699,8 @@ class TextLabel(Annotation):
         STYLE_FONT,
         STYLE_OPACITY,
         STYLE_BACKGROUND,
+        STYLE_BACKGROUND_COLOR,
+        STYLE_PADDING,
     )
 
     anchor: Point = Point(0.0, 0.0)
@@ -705,6 +713,16 @@ class TextLabel(Annotation):
     padding: float = 6.0
 
     # -- layout ----------------------------------------------------------
+
+    def visible_style_properties(self) -> tuple[str, ...]:
+        # The plate's colour and padding describe a plate that is not drawn.
+        if not self.background:
+            return tuple(
+                p
+                for p in self.style_properties
+                if p not in (STYLE_BACKGROUND_COLOR, STYLE_PADDING)
+            )
+        return self.style_properties
 
     def _build_layout(self, cr: cairo.Context):
         layout = PangoCairo.create_layout(cr)
@@ -973,6 +991,7 @@ class Badge(Annotation):
     label: ClassVar[str] = "Badge"
     style_properties: ClassVar[tuple[str, ...]] = (
         STYLE_COLOR,
+        STYLE_TEXT_COLOR,
         STYLE_FONT,
         STYLE_OPACITY,
     )

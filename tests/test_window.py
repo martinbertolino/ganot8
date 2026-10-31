@@ -13,7 +13,7 @@ from gi.repository import Adw, Gdk, Gtk, Pango
 
 from ganot8.annotations import Box
 from ganot8.document import Document
-from ganot8.geometry import Rect
+from ganot8.geometry import Point, Rect
 from ganot8.imageio.loader import LoadedImage
 
 from support import SKIP_REASON, display_available  # noqa: E402
@@ -206,6 +206,9 @@ def _visible_rows(window) -> set[str]:
             ("style", window._redact_style_row),
             ("strength", window._strength_row),
             ("colour", window._colour_row),
+            ("number-colour", window._text_colour_row),
+            ("bg-colour", window._background_colour_row),
+            ("padding", window._padding_row),
             ("font", window._font_row),
             ("width", window._width_row),
             ("opacity", window._opacity_row),
@@ -629,3 +632,96 @@ def test_redaction_still_offers_no_opacity_control_in_any_style(window):
         redaction.style = style
         window._sync_style_controls()
         assert not window._opacity_row.get_visible(), style
+
+
+# -- styles that used to be unreachable ----------------------------------
+
+
+def test_text_plate_colour_and_padding_appear_only_with_the_plate(window):
+    """They describe a plate, so showing them while it is off is noise."""
+    from ganot8.annotations import TextLabel
+
+    label = TextLabel(text="hi")
+    window.document.annotations.append(label)
+    window.canvas.set_selection([label])
+    assert "bg-colour" not in _visible_rows(window)
+    assert "padding" not in _visible_rows(window)
+
+    window._background_row.set_active(True)
+    assert "bg-colour" in _visible_rows(window)
+    assert "padding" in _visible_rows(window)
+
+
+def test_text_plate_colour_is_editable_and_undoable(window):
+    """A white-only plate is unreadable on a dark screenshot."""
+    from ganot8.annotations import TextLabel
+
+    label = TextLabel(text="hi", background=True)
+    window.document.annotations.append(label)
+    window.canvas.set_selection([label])
+
+    window._background_colour_button.set_rgba(
+        Gdk.RGBA(red=0.0, green=0.0, blue=0.0, alpha=1.0)
+    )
+    assert label.background_color[0] == pytest.approx(0.0)
+    assert window.document.history.undo_label == "Change Background Colour"
+    window.lookup_action("undo").activate(None)
+    assert label.background_color[0] == pytest.approx(1.0)
+
+
+def test_text_padding_is_editable(window):
+    from ganot8.annotations import TextLabel
+
+    label = TextLabel(text="hi", background=True)
+    window.document.annotations.append(label)
+    window.canvas.set_selection([label])
+    window._padding_row.set_value(18)
+    assert label.padding == pytest.approx(18.0)
+
+
+def test_badge_number_colour_is_editable(window):
+    from ganot8.annotations import Badge
+
+    badge = Badge(centre=Point(10, 10))
+    window.document.annotations.append(badge)
+    window.canvas.set_selection([badge])
+    window._text_colour_button.set_rgba(
+        Gdk.RGBA(red=1.0, green=0.9, blue=0.0, alpha=1.0)
+    )
+    assert badge.text_color[1] == pytest.approx(0.9)
+    assert window.document.history.undo_label == "Change Number Colour"
+
+
+def test_no_annotation_attribute_is_stranded_without_a_control(window):
+    """Anything a project stores should be reachable from the UI.
+
+    Three attributes were serialised, round-tripped and frozen at their
+    defaults because nothing could set them. Handles count as a control.
+    """
+    from dataclasses import fields
+
+    from ganot8.annotations import _REGISTRY
+    from ganot8.geometry import Handle
+
+    reachable_by_handle = {
+        "radius": {"badge"},
+        "wrap_width": {"text"},
+    }
+    cosmetic = {"text_color", "background_color", "padding", "head_scale"}
+
+    stranded = []
+    for kind, annotation_type in _REGISTRY.items():
+        editable = set(annotation_type.style_properties)
+        for field in fields(annotation_type):
+            if field.name not in cosmetic:
+                continue
+            if field.name in editable:
+                continue
+            if kind in reachable_by_handle.get(field.name, set()):
+                continue
+            if not hasattr(annotation_type(), field.name):
+                continue
+            stranded.append(f"{kind}.{field.name}")
+
+    # head_scale is deliberately derived from the line width (SPEC section 4).
+    assert stranded == ["arrow.head_scale"], stranded

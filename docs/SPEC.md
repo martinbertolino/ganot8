@@ -217,11 +217,11 @@ Annotation types (dataclasses sharing a common protocol):
 | `Redact` | rect | `style` (`solid`/`blur`/`pixelate`), colour (solid only), strength (blur/pixelate only) — **no opacity, by design** | built |
 | `Underline` | start, end | colour, width, opacity, wavy | built |
 | `Arrow` | start, end | colour, width, opacity, `head_scale` | built |
-| `TextLabel` | anchor, wrap width | text, Pango font string, colour, opacity, optional background plate + padding | built |
+| `TextLabel` | anchor, wrap width | text, Pango font string, colour, opacity, optional background plate with its own colour and padding | built |
 | `Box` | rect | colour, width, opacity, filled (**default on**) | built |
 | `Ellipse` | rect | colour, width, opacity, filled | built |
 | `Freehand` | point list | colour, width, opacity | built |
-| `Badge` | centre, number, radius | colour, font, opacity; numbering continues past the highest badge placed | built |
+| `Badge` | centre, number, radius | disc colour, numeral colour, font, opacity; numbering continues past the highest badge placed | built |
 
 `Redact.style` is serialised already, so adding blur and pixelate in phase 5 needs no
 project-format change. `Arrow.head_scale` is likewise stored but not yet exposed in the
@@ -473,14 +473,17 @@ Each phase ends with a runnable app and is approved separately.
 
 The suite splits in two, and the distinction matters for CI:
 
-- **Display-free** (195 tests as of phase 4) — pure logic and image handling, runnable anywhere:
+- **Display-free** — pure logic and image handling, runnable anywhere:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_effects`,
   `test_shapes_extra`, `test_reshape`, `test_spec`.
-- **Needs a display** (124 tests as of phase 4) — `test_tools`, `test_core_tools`,
-  `test_window`, `test_centering`. These construct real GTK widgets, and
-  `test_centering` presents a real toplevel and drives genuine allocation cycles.
+- **Needs a display** — `test_tools`, `test_core_tools`, `test_window`,
+  `test_centering`. These construct real GTK widgets, and `test_centering` presents a
+  real toplevel and drives genuine allocation cycles. Run `./run-tests.sh` for the
+  current split: exact counts are deliberately not written here, having gone stale
+  three times in three phases while the module lists — which the drift test does
+  check — stayed correct.
   `./run-tests.sh` uses `xvfb-run` when there is no display, and `--strict` refuses to
   run a partial suite at all. Install `xorg-x11-server-Xvfb` to execute them headless.
 
@@ -579,7 +582,15 @@ libadwaita bug report rather than a workaround here.
 
 `./run-tests.sh --strict` is the piece that was missing — it exits 2 rather than
 reporting success on a partial suite — but nothing runs it automatically. A pipeline
-needs `xorg-x11-server-Xvfb` installed on the runner, or 124 tests go unrun.
+needs `xorg-x11-server-Xvfb` installed on the runner, or the four widget modules go
+unrun.
+
+### Crop has no adjustable region
+
+The crop applies when the drag is released: there is no second pass with handles and an
+Apply button. It is one undoable command, so Ctrl+Z is the confirm step, and the dimmed
+overlay shows the region while dragging. Still a trade-off rather than a free choice —
+adjusting a crop currently means undoing it and drawing it again.
 
 ### Resolved
 
@@ -595,3 +606,10 @@ needs `xorg-x11-server-Xvfb` installed on the runner, or 124 tests go unrun.
   editing, so the annotations really are still unsaved, and the dialog says so.
 - **Widget tests vanishing on a headless runner** — see the correction in section 11;
   they were never skipping cleanly in the first place.
+- **Three annotation attributes with no control** — `TextLabel.background_color`,
+  `TextLabel.padding` and `Badge.text_color` were serialised, round-tripped and frozen
+  at their defaults because nothing in the UI could set them, and a white-only plate is
+  unreadable on a dark screenshot. All three now have sidebar rows, with the plate's
+  colour and padding shown only while the plate is on. A test asserts no attribute is
+  left stranded; `Arrow.head_scale` is the one deliberate exception, being derived from
+  the line width.

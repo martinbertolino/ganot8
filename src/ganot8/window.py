@@ -14,10 +14,13 @@ from .annotations import (
     STYLE_COLOR,
     STYLE_FILLED,
     STYLE_FONT,
+    STYLE_BACKGROUND_COLOR,
     STYLE_OPACITY,
+    STYLE_PADDING,
     STYLE_REDACT_STYLE,
     STYLE_STRENGTH,
     STYLE_STROKE_WIDTH,
+    STYLE_TEXT_COLOR,
     STYLE_WAVY,
 )
 from . import resources
@@ -48,6 +51,9 @@ _STYLE_WIDGET_KEYS = (
     STYLE_FILLED,
     STYLE_WAVY,
     STYLE_BACKGROUND,
+    STYLE_BACKGROUND_COLOR,
+    STYLE_PADDING,
+    STYLE_TEXT_COLOR,
 )
 
 _OPENABLE_MIME = (
@@ -300,6 +306,31 @@ class Window(Adw.ApplicationWindow):
         self._font_row.add_suffix(self._font_button)
         self._font_row.set_activatable_widget(self._font_button)
         self._style_group.add(self._font_row)
+
+        self._text_colour_button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog())
+        self._text_colour_button.set_valign(Gtk.Align.CENTER)
+        self._text_colour_button.connect("notify::rgba", self._on_text_colour_changed)
+        self._text_colour_row = Adw.ActionRow(title="Number Colour")
+        self._text_colour_row.add_suffix(self._text_colour_button)
+        self._text_colour_row.set_activatable_widget(self._text_colour_button)
+        self._style_group.add(self._text_colour_row)
+
+        self._background_colour_button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog())
+        self._background_colour_button.set_valign(Gtk.Align.CENTER)
+        self._background_colour_button.connect(
+            "notify::rgba", self._on_background_colour_changed
+        )
+        self._background_colour_row = Adw.ActionRow(title="Background Colour")
+        self._background_colour_row.add_suffix(self._background_colour_button)
+        self._background_colour_row.set_activatable_widget(self._background_colour_button)
+        self._style_group.add(self._background_colour_row)
+
+        self._padding_row = Adw.SpinRow(
+            title="Padding",
+            adjustment=Gtk.Adjustment(value=6, lower=0, upper=40, step_increment=1),
+        )
+        self._padding_row.connect("notify::value", self._on_padding_changed)
+        self._style_group.add(self._padding_row)
 
         self._width_row = Adw.SpinRow(
             title="Line Width",
@@ -661,6 +692,11 @@ class Window(Adw.ApplicationWindow):
 
             red, green, blue, alpha = colour
             self._colour_button.set_rgba(Gdk.RGBA(red=red, green=green, blue=blue, alpha=alpha))
+            self._set_colour_button(self._text_colour_button, values.get(STYLE_TEXT_COLOR))
+            self._set_colour_button(
+                self._background_colour_button, values.get(STYLE_BACKGROUND_COLOR)
+            )
+            self._padding_row.set_value(float(values.get(STYLE_PADDING) or 6.0))
             font = values.get(STYLE_FONT)
             if font:
                 self._font_button.set_font_desc(Pango.FontDescription.from_string(font))
@@ -674,6 +710,9 @@ class Window(Adw.ApplicationWindow):
                 (STYLE_REDACT_STYLE, self._redact_style_row),
                 (STYLE_STRENGTH, self._strength_row),
                 (STYLE_COLOR, self._colour_row),
+                (STYLE_TEXT_COLOR, self._text_colour_row),
+                (STYLE_BACKGROUND_COLOR, self._background_colour_row),
+                (STYLE_PADDING, self._padding_row),
                 (STYLE_FONT, self._font_row),
                 (STYLE_STROKE_WIDTH, self._width_row),
                 (STYLE_OPACITY, self._opacity_row),
@@ -709,6 +748,32 @@ class Window(Adw.ApplicationWindow):
             "color", (rgba.red, rgba.green, rgba.blue, rgba.alpha), "Change Colour"
         )
 
+    @staticmethod
+    def _set_colour_button(button: Gtk.ColorDialogButton, colour) -> None:
+        if not colour:
+            return
+        red, green, blue, alpha = colour
+        button.set_rgba(Gdk.RGBA(red=red, green=green, blue=blue, alpha=alpha))
+
+    def _on_text_colour_changed(self, button: Gtk.ColorDialogButton, _param) -> None:
+        rgba = button.get_rgba()
+        self._apply_style(
+            "text_color",
+            (rgba.red, rgba.green, rgba.blue, rgba.alpha),
+            "Change Number Colour",
+        )
+
+    def _on_background_colour_changed(self, button: Gtk.ColorDialogButton, _param) -> None:
+        rgba = button.get_rgba()
+        self._apply_style(
+            "background_color",
+            (rgba.red, rgba.green, rgba.blue, rgba.alpha),
+            "Change Background Colour",
+        )
+
+    def _on_padding_changed(self, row: Adw.SpinRow, _param) -> None:
+        self._apply_style("padding", float(row.get_value()), "Change Padding")
+
     def _on_width_changed(self, row: Adw.SpinRow, _param) -> None:
         self._apply_style("stroke_width", float(row.get_value()), "Change Width")
 
@@ -735,6 +800,8 @@ class Window(Adw.ApplicationWindow):
 
     def _on_background_changed(self, row: Adw.SwitchRow, _param) -> None:
         self._apply_style("background", bool(row.get_active()), "Change Background")
+        # The plate's colour and padding only apply when the plate is drawn.
+        self._sync_style_controls()
 
     def _on_font_changed(self, button: Gtk.FontDialogButton, _param) -> None:
         description = button.get_font_desc()
