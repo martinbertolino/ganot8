@@ -413,11 +413,11 @@ Each phase ends with a runnable app and is approved separately.
 
 The suite splits in two, and the distinction matters for CI:
 
-- **Display-free (141 tests)** — pure logic and image handling, runnable anywhere:
+- **Display-free** (141 tests as of phase 3) — pure logic and image handling, runnable anywhere:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`.
-- **Needs a display (101 tests)** — `test_tools`, `test_core_tools`, `test_window`,
+- **Needs a display** (101 tests as of phase 3) — `test_tools`, `test_core_tools`, `test_window`,
   `test_centering`. These construct real GTK widgets, and `test_centering` presents a
   real toplevel and waits for genuine allocation cycles. Each module calls
   `Gtk.init_check()` and **skips the whole module** when there is no display, so on a
@@ -445,6 +445,14 @@ The suite splits in two, and the distinction matters for CI:
   even at `ZOOM_MIN`) waits further still, until each adjustment's `upper` matches the
   content size actually requested — centring against a stale `upper` lands at the wrong
   offset and is then clamped to the far edge.
+- **Spec drift:** `tests/test_spec.py` checks this document against the code — the
+  section 4 kind table against the annotation registry, the section 8 tool keys against
+  the bound accelerators, the section 3 tree against the filesystem (phase-tagged files
+  must *not* exist yet), and the display split above against which modules actually call
+  `Gtk.init_check()`. The spec had silently fallen out of step twice before this existed.
+  Modifier accelerators are deliberately not checked: the spec writes `Ctrl+-` where GTK
+  says `<Control>minus`, and a normaliser for that would invent failures rather than
+  catch drift.
 - **Icon existence:** a test asserts every tool's `icon_name` resolves in the icon
   theme. GTK substitutes a broken-image glyph for a missing icon and logs nothing, so
   this is invisible without an explicit check.
