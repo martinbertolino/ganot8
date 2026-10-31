@@ -249,6 +249,14 @@ class Canvas(Gtk.DrawingArea):
     def current_style(self) -> dict:
         return self.style_for(self.tool_name)
 
+    def all_tool_styles(self) -> dict[str, dict]:
+        """Every style built so far, for persisting between runs.
+
+        Only tools the user actually touched appear, so nothing is written for
+        tools left at their defaults.
+        """
+        return {name: dict(style) for name, style in self._tool_styles.items()}
+
     def current_style_properties(self) -> tuple[str, ...]:
         """Which style rows apply to what the active tool would create next.
 

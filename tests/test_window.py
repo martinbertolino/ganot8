@@ -725,3 +725,93 @@ def test_no_annotation_attribute_is_stranded_without_a_control(window):
 
     # head_scale is deliberately derived from the line width (SPEC section 4).
     assert stranded == ["arrow.head_scale"], stranded
+
+
+# -- phase 6: desktop integration ----------------------------------------
+
+
+def test_copy_requires_a_document():
+    assert not Window()._document
+    assert not enabled(Window(), "copy")
+
+
+def test_copy_is_available_with_a_document(window):
+    assert enabled(window, "copy")
+
+
+def test_paste_and_screenshot_stay_available_without_a_document():
+    """They create a document, so needing one would be backwards."""
+    empty = Window()
+    assert enabled(empty, "paste")
+    assert enabled(empty, "screenshot")
+
+
+def test_adopting_an_image_creates_an_untitled_document(window):
+    from PIL import Image
+
+    window.adopt_image(Image.new("RGBA", (40, 30)), name="Pasted", loader="clipboard")
+    assert window.document.size == (40, 30)
+    assert window.document.source_path is None
+    assert window.document.is_untitled
+    assert window.document.loaded.loader == "clipboard"
+
+
+def test_an_adopted_image_exports_without_a_source_path(window, tmp_path):
+    """Untitled documents must still be exportable."""
+    from PIL import Image
+
+    window.adopt_image(Image.new("RGBA", (40, 30)), name="Pasted", loader="clipboard")
+    window._write_export(tmp_path / "out.png")
+    assert (tmp_path / "out.png").is_file()
+
+
+def test_the_shortcuts_dialog_lists_bound_shortcuts_only(window):
+    """Generated from the accel tables, so it cannot drift out of date."""
+    from ganot8.shortcuts import build_dialog
+
+    assert build_dialog(window) is not None
+
+
+def test_every_shortcut_the_dialog_names_is_actually_bound():
+    from ganot8.shortcuts import SECTIONS
+
+    app = Adw.Application(application_id="io.github.martinb.Ganot8.Test")
+    window = Window(application=app)
+    try:
+        window._install_actions()
+        unbound = []
+        for _title, entries in SECTIONS:
+            for label, action in entries:
+                name = action.split(".", 1)[1]
+                if action.startswith("win.") and window.lookup_action(name) is None:
+                    unbound.append(action)
+        assert unbound == [], unbound
+    finally:
+        window.destroy()
+
+
+def test_window_state_is_saved_and_restored():
+    from ganot8.settings import Settings
+
+    settings = Settings(use_gsettings=False)
+    first = Window(settings=settings)
+    first._export_quality = 71
+    first._export_format = "WEBP"
+    first.canvas.style_for("arrow")["stroke_width"] = 11.0
+    first.save_state()
+
+    second = Window(settings=settings)
+    assert second._export_quality == 71
+    assert second._export_format == "WEBP"
+    assert second.canvas.style_for("arrow")["stroke_width"] == 11.0
+
+
+def test_a_window_without_persistence_still_works():
+    """No schema installed must not stop the application running."""
+    from ganot8.settings import Settings
+
+    settings = Settings(use_gsettings=False)
+    assert not settings.persistent
+    window = Window(settings=settings)
+    window.save_state()  # must not raise
+    assert window.canvas is not None

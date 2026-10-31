@@ -10,6 +10,7 @@ from . import gi_init  # noqa: F401
 from gi.repository import Adw, Gdk, Gio, Gtk
 
 from . import APP_ID, APP_NAME, __version__, resources
+from .settings import Settings
 from .window import Window
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,10 @@ _ACCELERATORS = {
     "win.raise-annotation": ("<Control>Page_Up",),
     "win.lower-annotation": ("<Control>Page_Down",),
     "win.save-project": ("<Control><Shift>s",),
+    "win.paste": ("<Control>v",),
+    "win.copy": ("<Control>c",),
+    "win.screenshot": ("<Control><Shift>p",),
+    "win.shortcuts": ("F1",),
     "win.rotate-left": ("<Control>bracketleft",),
     "win.rotate-right": ("<Control>bracketright",),
     "win.toggle-sidebar": ("F9",),
@@ -69,6 +74,9 @@ class Application(Adw.Application):
             application_id=APP_ID,
             flags=Gio.ApplicationFlags.HANDLES_OPEN,
         )
+        # One instance shared by every window, so a change made in one is seen
+        # by the next window opened.
+        self.settings = Settings()
         self.connect("open", self._on_open)
 
     def do_startup(self) -> None:
@@ -97,7 +105,7 @@ class Application(Adw.Application):
     # -- helpers ---------------------------------------------------------
 
     def _present_window(self) -> Window:
-        window = self.get_active_window() or Window(application=self)
+        window = self.get_active_window() or Window(application=self, settings=self.settings)
         window.present()
         return window
 
@@ -106,13 +114,13 @@ class Application(Adw.Application):
         active = self.get_active_window()
         if isinstance(active, Window) and active.document is None:
             return active
-        return Window(application=self)
+        return Window(application=self, settings=self.settings)
 
     def _install_actions(self) -> None:
         for name, callback in (
             ("quit", lambda *_: self.quit()),
             ("about", self._action_about),
-            ("new-window", lambda *_: Window(application=self).present()),
+            ("new-window", lambda *_: Window(application=self, settings=self.settings).present()),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", callback)
@@ -135,6 +143,13 @@ class Application(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(
             display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+
+    def do_shutdown(self) -> None:
+        """Save state for a window closed by quitting rather than by its button."""
+        window = self.get_active_window()
+        if isinstance(window, Window):
+            window.save_state()
+        Adw.Application.do_shutdown(self)
 
     def _action_about(self, *_args) -> None:
         about = Adw.AboutDialog(

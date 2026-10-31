@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Ganot8
+GenericName=Image Annotator
+Comment=Annotate, highlight and redact images
+Keywords=annotate;screenshot;highlight;redact;arrow;markup;
+Exec=ganot8 %f
+Icon=io.github.martinb.Ganot8
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;GTK;
+StartupNotify=true
+MimeType=image/png;image/jpeg;image/gif;image/webp;image/avif;image/tiff;image/bmp;image/x-icon;image/svg+xml;application/x-ganot8;

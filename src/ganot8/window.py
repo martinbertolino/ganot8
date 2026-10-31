@@ -23,14 +23,16 @@ from .annotations import (
     STYLE_TEXT_COLOR,
     STYLE_WAVY,
 )
-from . import resources
+from . import clipboard, portal, resources
 from .canvas import Canvas
 from .dialogs import ExportOptionsDialog
 from .effects import REDACT_STYLES, STYLE_SOLID
 from .document import Document
 from .history import Reorder, StateChange
 from .imageio import exporter, project
-from .imageio.loader import UnsupportedImageError, load
+from .imageio.loader import LoadedImage, UnsupportedImageError, load
+from .settings import Settings, restore_tool_styles
+from .shortcuts import present_shortcuts
 
 log = logging.getLogger(__name__)
 
@@ -76,18 +78,24 @@ class Window(Adw.ApplicationWindow):
 
     __gtype_name__ = "Ganot8Window"
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, settings: Settings | None = None, **kwargs):
         super().__init__(**kwargs)
         self.set_title(APP_NAME)
-        self.set_default_size(1200, 800)
+        self.settings = settings if settings is not None else Settings()
+        self.set_default_size(
+            self.settings.get_int("window-width"),
+            self.settings.get_int("window-height"),
+        )
+        if self.settings.get_boolean("window-maximized"):
+            self.maximize()
         self._document: Document | None = None
         self._history_handler = 0
         #: Guards against style widgets echoing their own programmatic updates.
         self._syncing = False
         self._text_popover: Gtk.Popover | None = None
         self._text_cancelled = False
-        self._export_format = "PNG"
-        self._export_quality = 92
+        self._export_format = self.settings.get_string("export-format")
+        self._export_quality = self.settings.get_int("export-quality")
         #: Set once the user has agreed to lose unsaved work, so the second
         #: close attempt is not intercepted again.
         self._force_close = False
@@ -97,6 +105,8 @@ class Window(Adw.ApplicationWindow):
         self._build_ui()
         self._install_actions()
         self._install_drop_target()
+        restore_tool_styles(self._canvas, self.settings)
+        self._split.set_show_sidebar(self.settings.get_boolean("sidebar-visible"))
         self.connect("close-request", self._on_close_request)
         self._update_sensitivity()
         self._sync_style_controls()
@@ -171,6 +181,7 @@ class Window(Adw.ApplicationWindow):
         file_section.append("Export As…", "win.export-as")
         menu.append_section(None, file_section)
         edit_section = Gio.Menu()
+        edit_section.append("Copy to Clipboard", "win.copy")
         edit_section.append("Select All", "win.select-all")
         edit_section.append("Delete Selection", "win.delete")
         edit_section.append("Raise", "win.raise-annotation")
@@ -186,6 +197,7 @@ class Window(Adw.ApplicationWindow):
         view_section.append("Style Sidebar", "win.toggle-sidebar")
         menu.append_section(None, view_section)
         app_section = Gio.Menu()
+        app_section.append("Keyboard Shortcuts", "win.shortcuts")
         app_section.append(f"About {APP_NAME}", "app.about")
         menu.append_section(None, app_section)
 
@@ -460,6 +472,10 @@ class Window(Adw.ApplicationWindow):
             ("save-project", self._action_save_project),
             ("overwrite-original", self._action_overwrite_original),
             ("burn-in", self._action_burn_in),
+            ("paste", self._action_paste),
+            ("copy", self._action_copy),
+            ("screenshot", self._action_screenshot),
+            ("shortcuts", lambda *_: present_shortcuts(self)),
             ("rotate-left", lambda *_: self._rotate(-90)),
             ("rotate-right", lambda *_: self._rotate(90)),
         ):
@@ -573,6 +589,7 @@ class Window(Adw.ApplicationWindow):
             "overwrite-original",
             "rotate-left",
             "rotate-right",
+            "copy",
         ):
             action = self.lookup_action(name)
             if action is not None:
@@ -961,6 +978,79 @@ class Window(Adw.ApplicationWindow):
         launcher = Gtk.FileLauncher(file=Gio.File.new_for_path(str(path)))
         launcher.open_containing_folder(self, None, None)
 
+    # -- clipboard and screenshots ---------------------------------------
+
+    def _target_window(self) -> "Window":
+        """Where a newly acquired image should go.
+
+        A window that already holds something opens a new one rather than
+        replacing it, so pasting can never discard work.
+        """
+        if self._document is None:
+            return self
+        application = self.get_application()
+        if application is None:
+            return self
+        fresh = Window(application=application, settings=self.settings)
+        fresh.present()
+        return fresh
+
+    def adopt_image(self, image, *, name: str, loader: str) -> None:
+        """Show an image that came from somewhere other than a file."""
+        self.set_document(Document(LoadedImage(image=image, path=None, format=name, loader=loader)))
+        self._update_title()
+
+    def _action_paste(self, *_args) -> None:
+        board = Gdk.Display.get_default().get_clipboard()
+
+        def arrived(image) -> None:
+            self._target_window().adopt_image(image, name="Pasted", loader="clipboard")
+
+        clipboard.paste_image(
+            board, arrived, lambda message: self._show_error("Nothing to paste", message)
+        )
+
+    def _action_copy(self, *_args) -> None:
+        if self._document is None:
+            return
+        try:
+            flattened = exporter.flatten(self._document)
+        except Exception as error:
+            log.exception("could not flatten for the clipboard")
+            self._show_error("Could not copy image", str(error))
+            return
+        clipboard.copy_image(Gdk.Display.get_default().get_clipboard(), flattened)
+        self._toasts.add_toast(Adw.Toast(title="Copied to clipboard"))
+
+    def _action_screenshot(self, *_args) -> None:
+        if not portal.is_available():
+            self._show_error(
+                "Screenshots are unavailable",
+                "No desktop portal is running, so Ganot8 cannot capture the screen.\n"
+                "Take a screenshot another way and paste it with Ctrl+V.",
+            )
+            return
+
+        def captured(uri: str) -> None:
+            path = Path(Gio.File.new_for_uri(uri).get_path() or "")
+            if not path.is_file():
+                self._show_error("Could not read the screenshot", uri)
+                return
+            try:
+                loaded = load(path)
+            except UnsupportedImageError as error:
+                self._show_error("Could not read the screenshot", str(error))
+                return
+            # Deliberately untitled: the portal writes to a temporary location,
+            # so exporting beside it would scatter files somewhere unhelpful.
+            self._target_window().adopt_image(
+                loaded.image, name="Screenshot", loader="portal"
+            )
+
+        portal.take_screenshot(
+            captured, lambda message: self._show_error("Screenshot failed", message)
+        )
+
     # -- projects --------------------------------------------------------
 
     def _action_save_project(self, *_args) -> None:
@@ -1219,8 +1309,20 @@ class Window(Adw.ApplicationWindow):
         """
         return self._document is not None and self._document.dirty
 
+    def save_state(self) -> None:
+        """Remember window geometry and the styles chosen, for next time."""
+        if not self.is_maximized():
+            self.settings.set_int("window-width", self.get_width() or 1200)
+            self.settings.set_int("window-height", self.get_height() or 800)
+        self.settings.set_boolean("window-maximized", self.is_maximized())
+        self.settings.set_boolean("sidebar-visible", self._split.get_show_sidebar())
+        self.settings.set_string("export-format", self._export_format)
+        self.settings.set_int("export-quality", self._export_quality)
+        self.settings.set_tool_styles(self._canvas.all_tool_styles())
+
     def _on_close_request(self, *_args) -> bool:
         if self._force_close or not self.has_unsaved_work():
+            self.save_state()
             return Gdk.EVENT_PROPAGATE  # let the window close
         self._confirm_discard()
         return Gdk.EVENT_STOP

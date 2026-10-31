@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 5 complete · **Last updated:** 2026-10-31
+**Status:** Phase 6 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -156,11 +156,16 @@ ganot8/
 │   │   ├── exporter.py         # flatten -> Pillow -> save, metadata stripped
 │   │   └── project.py          # .ganot8 zip container: save/load, atomic replace
 │   ├── effects.py              # blur/pixelate patches, strength floors, cache
-│   ├── portal.py               # (phase 6) org.freedesktop.portal.Screenshot
-│   ├── clipboard.py            # (phase 6) paste texture in, copy flattened out
-│   └── settings.py             # (phase 6) GSettings wrapper with in-memory fallback
-├── data/icons/hicolor/scalable/actions/   # bundled symbolic icons
-├── data/                       # (phase 6) .desktop, gschema
+│   ├── portal.py               # org.freedesktop.portal.Screenshot exchange
+│   ├── clipboard.py            # paste texture in, copy flattened out
+│   ├── shortcuts.py            # Adw.ShortcutsDialog built from the accel tables
+│   └── settings.py             # GSettings wrapper with in-memory fallback
+├── install-user.sh             # registers the app under ~/.local; --uninstall undoes it
+├── data/
+│   ├── icons/hicolor/scalable/{actions,apps}/   # symbolic tool icons + app icon
+│   ├── schemas/…gschema.xml    # compiled by run.sh so settings persist from source
+│   ├── …Ganot8.desktop         # app entry, MIME associations, %f for Open With
+│   └── …Ganot8.mime.xml        # claims *.ganot8, outranking the generic zip rule
 └── tests/                      # see section 11; support.py holds the shared helpers
 ```
 
@@ -389,6 +394,13 @@ whenever `replace_source` runs — every patch was cut from pixels that no longe
   - **Selection** — Delete, plus a summary line ("1 box selected").
 - **Toasts** for export success (with a "Show in Files" action) and errors.
 
+**Paste and screenshot open a new window** when the current one already holds a
+document, rather than replacing it. Replacing would discard unsaved annotations without
+asking; prompting on every paste would be friction on the common case of pasting into an
+empty window. A screenshot is deliberately left **untitled** even though the portal
+hands back a path, because that path is a temporary location and exporting beside it
+would scatter files somewhere unhelpful.
+
 Behaviour: drawing a shape selects it and switches back to Select (so it can be
 immediately adjusted); selection shows 8 resize handles, or endpoint handles for
 arrow/underline and horizontal wrap-width handles for text; Escape cancels an
@@ -411,7 +423,9 @@ motion event.
 ## 8. Keyboard shortcuts
 
 **Implemented:** `Ctrl+O` open · `Ctrl+S` export · `Ctrl+Shift+E` export as ·
-`Ctrl+Shift+S` save project · `Ctrl+[` / `Ctrl+]` rotate left / right · `Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo ·
+`Ctrl+Shift+S` save project · `Ctrl+V` paste as new image · `Ctrl+C` copy flattened ·
+`Ctrl+Shift+P` new from screenshot · `F1` keyboard shortcuts ·
+`Ctrl+[` / `Ctrl+]` rotate left / right · `Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo ·
 `Ctrl+A` select all ·
 `Ctrl+Shift+A` deselect · `Delete` / `Backspace` delete selection ·
 `Ctrl+Page_Up` / `Ctrl+Page_Down` raise / lower · `F9` toggle style sidebar ·
@@ -424,27 +438,40 @@ bound to the
 stateful `win.tool` action, so the detailed action name carries the tool
 (`win.tool::highlight`).
 
-**Planned, not yet bound:** `Ctrl+V` paste, `Ctrl+C` copy flattened and
-`Ctrl+Shift+P` screenshot (phase 6 — all three are clipboard/portal work, so they
-land together); `F1` shortcuts window — note this needs a
-`Gtk.ShortcutsWindow` built and a `win.show-help-overlay` action added, which is
-currently unassigned to any phase; fold it into phase 6.
+**Everything in section 8 is now bound.** The shortcuts dialog behind `F1` is generated
+from the same accelerator tables, so a shortcut cannot be documented without being bound
+or added without appearing there. It uses `Adw.ShortcutsDialog`, not the deprecated
+`Gtk.ShortcutsWindow`.
 
 ## 9. Settings (GSettings, schema `io.github.martinb.Ganot8`)
+
+Persisted: window width/height/maximized, whether the style sidebar is shown, the last
+export format and quality, and the last-used style per tool.
 
 The shared default line width is **7px**. A hairline looks fine while annotating at
 1:1 and then disappears once the screenshot is scaled down into a document or a chat,
 which is where these images end up. `Arrow.head_scale` stays at 4.0, so a head keeps
 pace with the line rather than being left behind by it.
 
-Style is remembered **per tool** (`Canvas.style_for(name)`), seeded from each
-annotation kind's own dataclass defaults — so Highlight starts translucent yellow while
-Redact starts opaque black, without either having to be special-cased in the UI.
-Last-used colour/width/alpha/font per tool, default redact style, default export format
-and JPEG quality, export filename pattern (default `{stem}-annotated.{ext}`), confirm
-overwrite, window geometry. Loaded through `settings.py`, which falls back to an
-in-memory dict when the schema isn't installed — so running from source without
-`glib-compile-schemas` still works.
+Style is remembered **per tool** (`Canvas.style_for(name)`), seeded from each annotation
+kind's own dataclass defaults — so Highlight starts translucent yellow while Redact
+starts opaque black, without either having to be special-cased in the UI.
+
+Tool styles are stored as a **single JSON string**, not as one key per tool. The set of
+tools, and the properties each has, changes whenever an annotation kind is added; a
+schema revision per kind would be the wrong trade. Restoring is defensive in both
+directions: a key the tool does not have is ignored, so a style written by a newer build
+cannot inject an attribute the annotation does not understand, and a value of the wrong
+type is dropped rather than coerced. Unreadable JSON is discarded outright — this is a
+convenience, not something the user created, and it must never stop the application
+starting.
+
+`settings.py` falls back to an in-memory dictionary mirroring the schema defaults when
+no schema can be found, so the application still runs, just without remembering
+anything. To make it remember when run from a source tree, `run.sh` compiles the schema
+into `data/schemas` and `settings.py` looks there before the system source. A test
+asserts the schema's keys and the fallback defaults have not diverged, since two sources
+of defaults that disagree would behave differently.
 
 ## 10. Roadmap
 
@@ -465,8 +492,9 @@ Each phase ends with a runnable app and is approved separately.
 5. **v1 extras** — blur/pixelate redaction with strength floors (`effects.py`),
    ellipse, freehand, numbered badges, crop and rotate. ✅ done
 6. **Desktop integration** — clipboard paste/copy, XDG screenshot portal, `.desktop`
-   file + icon + MIME associations so Ganot8 appears under Files' "Open With",
-   a `Gtk.ShortcutsWindow` behind `F1`, and GSettings persistence (section 9).
+   entry + app icon + MIME association for `.ganot8`, `Adw.ShortcutsDialog` behind `F1`,
+   and GSettings persistence. `install-user.sh` registers all of it under `~/.local`
+   without root, and `--uninstall` takes it back out. ✅ done
 7. **Packaging (deferred)** — Meson build, GResource-bundled UI, Flatpak manifest.
 
 ## 11. Verification
@@ -477,7 +505,8 @@ The suite splits in two, and the distinction matters for CI:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_effects`,
-  `test_shapes_extra`, `test_reshape`, `test_spec`.
+  `test_shapes_extra`, `test_reshape`, `test_settings`, `test_clipboard`,
+  `test_portal`, `test_desktop_files`, `test_spec`.
 - **Needs a display** — `test_tools`, `test_core_tools`, `test_window`,
   `test_centering`. These construct real GTK widgets, and `test_centering` presents a
   real toplevel and drives genuine allocation cycles. Run `./run-tests.sh` for the

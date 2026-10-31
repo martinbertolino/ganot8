@@ -34,5 +34,16 @@ if [[ ! -x "$VENV/bin/python" ]]; then
     fi
 fi
 
+# Compile the GSettings schema if it is missing or out of date. Without it
+# the application still runs, it just will not remember anything.
+SCHEMA_DIR="data/schemas"
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    if [[ ! -f "$SCHEMA_DIR/gschemas.compiled" ]] \
+       || [[ "$SCHEMA_DIR/io.github.martinb.Ganot8.gschema.xml" -nt "$SCHEMA_DIR/gschemas.compiled" ]]; then
+        glib-compile-schemas "$SCHEMA_DIR" || \
+            echo "ganot8: schema compile failed; settings will not persist" >&2
+    fi
+fi
+
 export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
 exec "$VENV/bin/python" -m ganot8 "$@"

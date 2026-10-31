@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-ganot8">
+    <comment>Ganot8 annotation project</comment>
+    <glob pattern="*.ganot8"/>
+    <!-- A project is a zip, so the magic has to beat the generic zip rule. -->
+    <magic priority="60">
+      <match type="string" value="PK\003\004" offset="0"/>
+    </magic>
+    <sub-class-of type="application/zip"/>
+    <icon name="io.github.martinb.Ganot8"/>
+  </mime-type>
+</mime-info>
