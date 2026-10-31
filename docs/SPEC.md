@@ -388,6 +388,16 @@ Each phase ends with a runnable app and is approved separately.
   **privacy
   assertions** — exported file carries no EXIF/XMP/ICC, and pixels under a solid
   redaction equal the fill colour exactly; burn-in mutates `source`.
+- **Centring on open:** `tests/test_centering.py` opens a real toplevel and waits for
+  genuine allocation cycles, because the bug it guards against only exists in one. Fit
+  zoom is applied on an **idle**, never inline from `notify::page-size`: that handler
+  runs during the viewport's size allocation, where a `set_content_*` call is ignored
+  for the cycle and leaves the adjustments' `upper` stale. A stale `upper` greater than
+  `page_size` makes the ScrolledWindow think it can still scroll, so it pins the child
+  at 0 and `halign=CENTER` never applies. Scroll centring (for an image too large to fit
+  even at `ZOOM_MIN`) waits further still, until each adjustment's `upper` matches the
+  content size actually requested — centring against a stale `upper` lands at the wrong
+  offset and is then clamped to the far edge.
 - **Icon existence:** a test asserts every tool's `icon_name` resolves in the icon
   theme. GTK substitutes a broken-image glyph for a missing icon and logs nothing, so
   this is invisible without an explicit check.

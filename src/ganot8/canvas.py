@@ -76,6 +76,8 @@ class Canvas(Gtk.DrawingArea):
         #: settings (docs/SPEC.md section 9).
         self._tool_styles: dict[str, dict] = {}
         self._text_edit: dict | None = None
+        self._fit_source = 0
+        self._centre_pending = False
 
         self.set_halign(Gtk.Align.CENTER)
         self.set_valign(Gtk.Align.CENTER)
@@ -98,6 +100,9 @@ class Canvas(Gtk.DrawingArea):
         self._scroller = scroller
         for adjustment in (scroller.get_hadjustment(), scroller.get_vadjustment()):
             adjustment.connect("notify::page-size", self._on_viewport_resized)
+            # Centring has to wait until the adjustment reflects the content
+            # size we just asked for, which is one allocation later.
+            adjustment.connect("notify::upper", lambda *_: self._maybe_centre())
 
     def _build_tools(self) -> None:
         for tool_type in registered_tools():
@@ -153,6 +158,9 @@ class Canvas(Gtk.DrawingArea):
             self._document_handler = document.connect("changed", self._on_document_changed)
         self._fit_mode = True
         self._apply_zoom(self._compute_fit_zoom(), notify=True)
+        # The scroller has usually not been allocated yet on the first open, so
+        # the fit computed above is a guess. Re-fit once layout has settled.
+        self._schedule_fit()
         self.emit("selection-changed")
 
     def _on_document_changed(self, *_args) -> None:
@@ -339,6 +347,7 @@ class Canvas(Gtk.DrawingArea):
 
     def zoom_to(self, zoom: float, *, anchor: tuple[float, float] | None = None) -> None:
         self._fit_mode = False
+        self._centre_pending = False
         self._apply_zoom(zoom, anchor=anchor, notify=True)
 
     def zoom_actual(self) -> None:
@@ -436,9 +445,60 @@ class Canvas(Gtk.DrawingArea):
 
     def _on_viewport_resized(self, *_args) -> None:
         if self._fit_mode and self._document is not None:
-            fit = self._compute_fit_zoom()
-            if abs(fit - self._zoom) > 1e-4:
-                self._apply_zoom(fit, notify=True)
+            self._schedule_fit()
+
+    def _schedule_fit(self) -> None:
+        """Apply fit-to-window once the current layout pass has finished.
+
+        This runs on an idle rather than inline because the trigger is a change
+        to the adjustments' page-size, which happens *during* the viewport's
+        size allocation. Calling set_content_width/height at that moment is
+        ignored for the cycle and leaves the adjustments' ``upper`` at the old
+        value; with ``upper > page_size`` the ScrolledWindow still believes it
+        can scroll, so it pins the child at 0 and ``halign=CENTER`` never takes
+        effect - the image sits in the top-left until some later event forces a
+        fresh layout.
+        """
+        if self._fit_source or self._document is None:
+            return
+
+        def apply_fit() -> bool:
+            self._fit_source = 0
+            if self._fit_mode and self._document is not None:
+                fit = self._compute_fit_zoom()
+                if abs(fit - self._zoom) > 1e-4:
+                    self._apply_zoom(fit, notify=True)
+                # An image too big to fit even at ZOOM_MIN stays scrollable and
+                # should still open centred rather than in the top-left corner.
+                self._centre_pending = True
+                self._maybe_centre()
+            return GLib.SOURCE_REMOVE
+
+        self._fit_source = GLib.idle_add(apply_fit, priority=GLib.PRIORITY_HIGH_IDLE)
+
+    def _maybe_centre(self) -> None:
+        """Centre the scroll position, once the adjustments have caught up.
+
+        Acting on a plain idle is not enough: the adjustments still describe the
+        *previous* content size until the next allocation, and centring against
+        a stale ``upper`` lands at the wrong offset (and is then clamped to the
+        far edge). So each axis is checked against the size actually requested,
+        and centring is deferred again until both agree.
+        """
+        if not self._centre_pending or self._scroller is None:
+            return
+        axes = (
+            (self._scroller.get_hadjustment(), self.get_content_width()),
+            (self._scroller.get_vadjustment(), self.get_content_height()),
+        )
+        for adjustment, content in axes:
+            expected = max(adjustment.get_page_size(), float(content))
+            if abs(adjustment.get_upper() - expected) > 1.0:
+                return  # allocation has not caught up yet; try again next time
+        self._centre_pending = False
+        for adjustment, _ in axes:
+            slack = adjustment.get_upper() - adjustment.get_page_size()
+            adjustment.set_value(max(0.0, slack) / 2)
 
     # -- coordinates -----------------------------------------------------
 
@@ -560,6 +620,7 @@ class Canvas(Gtk.DrawingArea):
     def _on_pan_begin(self, _gesture, _start_x: float, _start_y: float) -> None:
         if self._scroller is None or self._document is None:
             return
+        self._centre_pending = False
         self._pan_origin = (
             self._scroller.get_hadjustment().get_value(),
             self._scroller.get_vadjustment().get_value(),
