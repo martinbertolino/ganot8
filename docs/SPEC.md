@@ -32,7 +32,7 @@ privacy-correctness feature, not just a drawing tool.
 | v1 tool set | highlight, redact, underline, arrow, text + crop/rotate, blur/pixelate, box/ellipse/freehand, numbered badges |
 | Python | **3.14.8 via pyenv**, isolated in a project-local `.venv` |
 | Dependencies | From **PyPI into the venv**, pinned in `requirements.txt` — not from system RPMs |
-| Build | Run from source first (`./run.sh`); Meson + Flatpak deferred to a later phase |
+| Build | `./run.sh` from a checkout, `./install-user.sh` for one user, or Meson system-wide (§10a). The Flatpak manifest exists but is unbuilt (§13) |
 
 ## 2. Development environment
 
@@ -643,8 +643,16 @@ The suite splits in two, and the distinction matters for CI:
 ## 12. Deliberately out of scope for v1
 
 Multi-frame/animated output, layers panel, SVG/PDF vector export, OCR, speech balloons,
-image filters beyond blur/pixelate, multi-document tabs, cloud upload, i18n (strings
-stay translatable via `_()` from day one, but no catalogues yet).
+image filters beyond blur/pixelate, multi-document tabs (several windows instead), and
+cloud upload.
+
+**Translation**, explicitly. An earlier draft of this section claimed strings "stay
+translatable via `_()` from day one" — that was never true. There is no gettext anywhere
+in the source, no `po/` directory and no `i18n` module in the Meson build; every
+user-visible string is a bare literal, around 65 of them in `window.py` alone. Adding
+translation later therefore means a pass over every string as well as the build
+plumbing, not just writing catalogues. Said plainly here so nobody plans around
+groundwork that does not exist.
 
 ## 13. Open issues
 
