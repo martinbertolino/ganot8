@@ -286,23 +286,46 @@ class Window(Adw.ApplicationWindow):
         self._background_row.connect("notify::active", self._on_background_changed)
         self._style_group.add(self._background_row)
 
-        arrange = Adw.PreferencesGroup(title="Arrange")
+        # "Arrange" alone said nothing about what it arranges, and Delete had
+        # no business sitting under a stacking-order heading.
+        arrange = Adw.PreferencesGroup(
+            title="Arrange z-order",
+            description="Which annotation is drawn on top where they overlap",
+        )
         page.add(arrange)
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, homogeneous=True)
-        buttons.set_margin_top(6)
-        for label, action in (
-            ("Raise", "win.raise-annotation"),
-            ("Lower", "win.lower-annotation"),
-            ("Delete", "win.delete"),
-        ):
-            button = Gtk.Button(label=label)
-            button.set_action_name(action)
-            if label == "Delete":
-                button.add_css_class("destructive-action")
-            buttons.append(button)
-        row = Adw.PreferencesRow(activatable=False)
-        row.set_child(buttons)
-        arrange.add(row)
+        arrange.add(
+            self._button_row(
+                (
+                    (
+                        "Raise",
+                        "win.raise-annotation",
+                        "Move one step towards the front (Ctrl+Page Up)",
+                        None,
+                    ),
+                    (
+                        "Lower",
+                        "win.lower-annotation",
+                        "Move one step towards the back (Ctrl+Page Down)",
+                        None,
+                    ),
+                )
+            )
+        )
+
+        selection = Adw.PreferencesGroup(title="Selection")
+        page.add(selection)
+        selection.add(
+            self._button_row(
+                (
+                    (
+                        "Delete",
+                        "win.delete",
+                        "Remove the selected annotations (Delete)",
+                        "destructive-action",
+                    ),
+                )
+            )
+        )
 
         self._selection_label = Gtk.Label(xalign=0)
         self._selection_label.add_css_class("dim-label")
@@ -311,8 +334,24 @@ class Window(Adw.ApplicationWindow):
         self._selection_label.set_wrap(True)
         info = Adw.PreferencesRow(activatable=False)
         info.set_child(self._selection_label)
-        arrange.add(info)
+        selection.add(info)
         return page
+
+    @staticmethod
+    def _button_row(entries) -> Adw.PreferencesRow:
+        """A row of equal-width buttons, each wired to an action."""
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, homogeneous=True)
+        box.set_margin_top(6)
+        for label, action, tooltip, css_class in entries:
+            button = Gtk.Button(label=label)
+            button.set_action_name(action)
+            button.set_tooltip_text(tooltip)
+            if css_class:
+                button.add_css_class(css_class)
+            box.append(button)
+        row = Adw.PreferencesRow(activatable=False)
+        row.set_child(box)
+        return row
 
     def _install_actions(self) -> None:
         for name, callback in (

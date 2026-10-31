@@ -121,7 +121,8 @@ ganot8/
 ├── .venv/                      # git-ignored
 ├── docs/SPEC.md                # this document
 ├── devtools/
-│   └── render_preview.py       # drives the real Canvas draw path offscreen
+│   ├── render_preview.py       # drives the real Canvas draw path offscreen
+│   └── shoot_ui.py             # renders the live window/sidebar to PNG
 ├── src/ganot8/
 │   ├── __main__.py             # argv -> Application
 │   ├── gi_init.py              # pins GI versions; import before any gi.repository
@@ -440,6 +441,11 @@ The suite splits in two, and the distinction matters for CI:
 - **Icon existence:** a test asserts every tool's `icon_name` resolves in the icon
   theme. GTK substitutes a broken-image glyph for a missing icon and logs nothing, so
   this is invisible without an explicit check.
+- **UI screenshots:** `devtools/shoot_ui.py` renders the live window and sidebar to PNG
+  from *inside* the process — a realized widget is snapshotted to a Gsk render node and
+  rendered to a texture by the toplevel's own renderer. This is the way to see the real
+  UI here, since GNOME 50 denies `org.gnome.Shell.Screenshot` to unauthorized callers
+  and there is no Xvfb. Use it after changing layout, labels or the tool strip.
 - **Offscreen render check:** `devtools/render_preview.py` drives the real
   `Canvas._on_draw` into an image surface and writes PNGs at several zoom levels.
   This exists because the canvas **cannot be screenshotted automatically** on this
