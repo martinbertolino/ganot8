@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** draft spec, no code yet · **Last updated:** 2026-10-31
+**Status:** Phase 1 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -30,30 +30,95 @@ privacy-correctness feature, not just a drawing tool.
 | Project file | `.ganot8` (editable, retains original pixels), saved via `Ctrl+Shift+S` |
 | Input paths | Open/drag-drop, clipboard paste, in-app screenshot (XDG portal), CLI argument |
 | v1 tool set | highlight, redact, underline, arrow, text + crop/rotate, blur/pixelate, box/ellipse/freehand, numbered badges |
+| Python | **3.14.8 via pyenv**, isolated in a project-local `.venv` |
+| Dependencies | From **PyPI into the venv**, pinned in `requirements.txt` — not from system RPMs |
 | Build | Run from source first (`./run.sh`); Meson + Flatpak deferred to a later phase |
 
-## 2. Target environment (verified 2026-10-31 on this machine)
+## 2. Development environment
 
-Fedora 44, GNOME. All runtime dependencies are already installed — **nothing to install**:
+Target: Fedora 44 + GNOME. The project is **not** built against system Python packages;
+it uses its own pyenv interpreter and virtualenv so dependency versions are ours to
+choose and a `dnf upgrade` cannot change the app's behaviour.
 
-- `gtk4` 4.22.5, `libadwaita` 1.9.4, `python3-gobject` 3.56.3, `python3-cairo` 1.28.0,
-  `python3-pillow` 12.3.0, `gdk-pixbuf2` 2.44, `librsvg2` 2.62
-- Confirmed available: `Gtk.FileDialog`, `Gtk.ColorDialog`, `Gtk.AlertDialog`,
-  `Adw.ToolbarView`, `Adw.Dialog`, `Adw.Banner`, `Adw.Toast`,
-  `Gdk.Clipboard.read_texture_async`, PangoCairo
-- Not installed, and not required: `gtk4-devel`, `meson`, `valac`, `cargo`,
-  `webp-pixbuf-loader`
+### 2.1 Python
 
-> **Critical interpreter note:** the shell's default `python3` is pyenv 3.11.16 and has
-> **no `gi` module**. The app must run under **`/usr/bin/python3`** (3.14, with
-> PyGObject). `run.sh` hardcodes `/usr/bin/python3` and the entry script uses
-> `#!/usr/bin/python3`.
+**Python 3.14.8 via pyenv**, pinned by a checked-in `.python-version`, with all Python
+dependencies installed from PyPI into a project-local `.venv`:
+
+```bash
+pyenv local 3.14.8                  # writes .python-version (committed)
+python -m venv .venv                # pyenv shim resolves to 3.14.8
+.venv/bin/pip install -U pip
+.venv/bin/pip install -r requirements.txt
+```
+
+`run.sh` execs `.venv/bin/python -m ganot8`, so the app never depends on the shell's
+active pyenv version or on `/usr/bin/python3`. The venv is **not** created with
+`--system-site-packages`: a pyenv venv cannot see Fedora's `/usr/lib64/python3.14`
+packages anyway, and relying on that would defeat the point.
+
+### 2.2 Python dependencies (`requirements.txt`)
+
+| Package | Role | Notes |
+|---|---|---|
+| `pygobject` 3.58.x | GTK4/libadwaita bindings | **sdist only on Linux — compiles at install time** |
+| `pycairo` 1.29.x | Cairo drawing | sdist only on Linux; compiles, ~10s |
+| `pillow` 13.x | image decode/encode | manylinux wheel, no compiler needed |
+| `pillow-heif` | HEIC/HEIF reading | optional extra; pure wheel |
+| `pytest` | tests | |
+| `pygobject-stubs` | type hints for `gi` | dev-only, improves editor completion |
+
+### 2.3 System packages
+
+Two distinct sets. **Runtime libraries and typelibs** cannot come from PyPI — PyGObject
+is only a binding layer and loads the system GTK stack via GObject introspection.
+Verified present on this machine:
+
+- `gtk4` 4.22.5, `libadwaita` 1.9.4, `gdk-pixbuf2` 2.44, `librsvg2` 2.62, `glib2` 2.88.4
+- Typelibs confirmed in `/usr/lib64/girepository-1.0/`: `Gtk-4.0`, `Adw-1`, `Gdk-4.0`,
+  `Gsk-4.0`, `GdkPixbuf-2.0`, `Pango-1.0`, `PangoCairo-1.0`, `cairo-1.0`, `Gio-2.0`
+- **`gtk4-devel` is *not* required** — the typelibs ship in the `gtk4` runtime package
+
+**Build dependencies**, needed only to compile `pygobject` and `pycairo` into the venv:
+
+| Package | Provides | Status |
+|---|---|---|
+| `gcc` | compiler | installed (16.2.1) |
+| `glib2-devel` | `girepository-2.0.pc` (PyGObject ≥ 3.52 requirement) | installed (2.88.4) |
+| `cairo-devel` | `cairo.pc` | installed (1.18.6) |
+| `pkgconf-pkg-config` | pkg-config | installed |
+| `libffi-devel` | `libffi.pc` | installed (3.5.2) |
+| **`cairo-gobject-devel`** | **`cairo-gobject.pc` / `cairo-gobject.h`** | **must be installed** |
+
+One-time setup command:
+
+```bash
+sudo dnf install cairo-gobject-devel
+```
+
+> Without it the PyGObject build fails at
+> `gi/pygi-foreign-cairo.c:24: fatal error: cairo-gobject.h: No such file or directory`.
+> It is not optional: it is what lets a Cairo context cross the GI boundary into the
+> `Gtk.DrawingArea` draw callback, which is how the whole canvas is rendered.
+
+`meson`, `ninja`, and `meson-python` are **not** needed as system packages — pip pulls
+them as wheels into the build isolation environment.
+
+### 2.4 API availability (verified)
+
+`Gtk.FileDialog`, `Gtk.ColorDialog`, `Gtk.AlertDialog`, `Gtk.GraphicsOffload`,
+`Adw.ToolbarView`, `Adw.Dialog`, `Adw.Banner`, `Adw.Toast`,
+`Gdk.Clipboard.read_texture_async`, PangoCairo.
 
 ## 3. Module layout
 
 ```
 ganot8/
-├── run.sh                      # exec /usr/bin/python3 -m ganot8 "$@"  (PYTHONPATH=src)
+├── .python-version             # 3.14.8  (pyenv, committed)
+├── requirements.txt            # pinned PyPI deps
+├── pyproject.toml              # package metadata, pytest + ruff config
+├── run.sh                      # bootstraps .venv if absent, then execs it
+├── .venv/                      # git-ignored
 ├── docs/SPEC.md                # this document
 ├── src/ganot8/
 │   ├── __main__.py             # argv -> Application
@@ -142,20 +207,49 @@ round-trip rather than dropped, so an older build never silently destroys newer 
 
 ## 5. Image I/O
 
-**Loading** — hybrid, because neither library alone is sufficient (verified):
+Using PyPI Pillow rather than Fedora's build materially improves this (verified: the
+`pillow` 13.0.0 manylinux wheel reports `features.check("avif") == True` and registers
+AVIF as both reader *and* writer, whereas `python3-pillow` 12.3.0 on this machine ships
+an AVIF reader with **no working codec**). Pillow is therefore the primary path and
+GdkPixbuf is a narrow fallback.
 
-1. Try **Pillow** (PNG, JPEG, GIF, WEBP, TIFF, BMP, ICO, PPM, TGA, PSD, …).
-2. On failure fall back to **GdkPixbuf**, which covers what Pillow here cannot:
-   **AVIF, HEIC, JXL, SVG, DDS, QOI, raw** (Pillow registers an AVIF reader but
-   `features.check("avif")` is `False` — the codec is absent, so the fallback matters).
-   Convert the pixbuf's pixels into a Pillow `Image`.
-3. Animated GIF/WEBP: load **frame 0** and show an `Adw.Banner` saying only the first
+**Loading** — Pillow first, GdkPixbuf as safety net:
+
+1. **Pillow** handles PNG, JPEG, GIF, WEBP, TIFF, BMP, ICO, **AVIF**, PPM, TGA, PSD,
+   DDS, QOI and more. `pillow-heif` is registered at startup if importable, adding
+   **HEIC/HEIF**.
+2. On any decode failure, fall back to **GdkPixbuf**, which is already in-process
+   because GTK is loaded, so it costs nothing. It uniquely covers **SVG** (via
+   librsvg, rendered at its natural size) and **JPEG XL**, and acts as a general
+   backstop for anything a future Pillow version drops. Pixbuf pixels are copied into a
+   Pillow `Image`, honouring `rowstride` (which is *not* always `width × channels`).
+3. EXIF orientation is applied on load via `ImageOps.exif_transpose`, so a phone photo
+   appears upright and annotation coordinates match what the user sees.
+4. Animated GIF/WEBP: load **frame 0** and show an `Adw.Banner` saying only the first
    frame is annotated. Multi-frame output is out of scope for v1.
-4. Everything is normalised to RGBA internally.
+5. Everything is normalised to **RGBA** internally.
 
-**Writing** — Pillow only (it writes GIF, which GdkPixbuf cannot). Export formats:
-**PNG** (default), **JPEG** (quality slider, flattened onto white), **WEBP**, **GIF**,
-**TIFF**, **BMP**. Format inferred from the chosen extension.
+**Writing** — Pillow only. Export formats: **PNG** (default), **JPEG** (quality slider,
+flattened onto white), **WEBP**, **AVIF**, **GIF**, **TIFF**, **BMP**. Format is
+inferred from the chosen extension.
+
+### PIL ↔ Cairo conversion (verified, and done without numpy)
+
+numpy is deliberately not a dependency; both directions are expressible with Pillow and
+Cairo alone, which was tested before being written into the spec:
+
+- **PIL → Cairo:** Cairo's `FORMAT_ARGB32` is **alpha-premultiplied** and in native byte
+  order (B,G,R,A on little-endian). Premultiply with `ImageChops.multiply(channel,
+  alpha)` — it computes exactly `(a × b) / 255` — then `Image.merge("RGBA", (b′, g′, r′,
+  a))` and `tobytes()` yields a buffer `cairo.ImageSurface.create_for_data` accepts
+  directly. The backing `bytearray` must be kept referenced for the surface's lifetime,
+  since `create_for_data` does **not** copy. Byte order is selected from `sys.byteorder`.
+- **Cairo → PIL:** Pillow's raw decoder has a premultiplied `"BGRa"` mode which
+  un-premultiplies on the way in: `Image.frombuffer("RGBA", size, data, "raw", "BGRa",
+  stride, 1)`. Round-trip is exact for opaque pixels and within ±1/255 for
+  partially-transparent ones (inherent to 8-bit premultiplication), and fully
+  transparent pixels come back as `(0,0,0,0)`.
+- `format_stride_for_width` is queried rather than assuming `width × 4`.
 
 **Flatten pipeline:** create a Cairo `ImageSurface` at crop/rotation size → draw source →
 draw annotations via `render.py` at scale 1.0 → convert ARGB32 premultiplied to Pillow
@@ -232,8 +326,9 @@ in-memory dict when the schema isn't installed — so running from source withou
 Each phase ends with a runnable app and is approved separately.
 
 0. **Spec** — this document, under git. ✅ done
-1. **Skeleton & viewing** — `run.sh`, app/window/canvas, hybrid loader, zoom/pan,
-   CLI arg, drag-and-drop, PNG export of an unannotated image.
+1. **Bootstrap, skeleton & viewing** — venv setup (§2) and `run.sh`; app/window/canvas,
+   Pillow+GdkPixbuf loader, PIL↔Cairo bridge, zoom/pan, CLI arg, drag-and-drop,
+   PNG export of an unannotated image. ✅ done
 2. **Annotation engine** — `annotations.py`, `geometry.py`, `history.py`, `render.py`,
    Select tool (move/resize/delete/reorder), style sidebar. No new tools yet; proves the
    extension seam.
@@ -249,13 +344,23 @@ Each phase ends with a runnable app and is approved separately.
 
 ## 11. Verification
 
-- **Automated (`pytest`, headless, no display needed):** geometry and hit-testing;
+- **Automated (`.venv/bin/pytest`, headless, no display needed):** PIL↔Cairo round-trip
+  fidelity; geometry and hit-testing;
   annotation `to_dict`/`from_dict` round-trip including unknown-type preservation;
   undo/redo invariants (N operations then N undos restores the initial model);
-  `.ganot8` write→read round-trip; loader across generated PNG/JPEG/GIF/WEBP/TIFF/BMP
-  fixtures plus an AVIF fixture to exercise the GdkPixbuf fallback; **privacy
+  `.ganot8` write→read round-trip; loader across generated
+  PNG/JPEG/GIF/WEBP/TIFF/BMP/AVIF fixtures plus an SVG fixture to exercise the
+  GdkPixbuf fallback and a rowstride-padded pixbuf to exercise the stride handling;
+  **privacy
   assertions** — exported file carries no EXIF/XMP/ICC, and pixels under a solid
   redaction equal the fill colour exactly; burn-in mutates `source`.
+- **Offscreen render check:** `devtools/render_preview.py` drives the real
+  `Canvas._on_draw` into an image surface and writes PNGs at several zoom levels.
+  This exists because the canvas **cannot be screenshotted automatically** on this
+  machine: GNOME 50 denies `org.gnome.Shell.Screenshot` to unauthorized callers, the
+  XDG portal requires user interaction, and Xvfb is not installed. A display must be
+  present for `Gtk.init()`, but no window is shown. Use it after any change to drawing,
+  scaling or filtering.
 - **Manual, per phase:** `./run.sh` and `./run.sh fixture.png`; annotate a real
   screenshot, export, reopen the export to confirm the annotations are baked in; zoom to
   800% and confirm annotations stay pixel-aligned with the image; paste from clipboard

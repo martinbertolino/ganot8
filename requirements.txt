@@ -1,0 +1,13 @@
+# Ganot8 runtime + dev dependencies.
+# NOTE: pygobject and pycairo are sdist-only on Linux and compile at install time.
+# They need: gcc, glib2-devel, cairo-devel, cairo-gobject-devel, libffi-devel.
+# See docs/SPEC.md section 2.3.
+
+pygobject==3.58.1
+pycairo==1.29.2
+pillow==13.0.0
+pillow-heif==1.8.1
+
+# dev
+pytest==9.0.1
+pygobject-stubs==2.20.0
