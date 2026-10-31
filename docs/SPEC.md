@@ -120,7 +120,10 @@ ganot8/
 ├── run.sh                      # bootstraps .venv if absent, then execs it
 ├── run-tests.sh                # runs the suite; refuses to hide skipped widget tests
 ├── .venv/                      # git-ignored
+├── README.md                   # front page: what it is, privacy rationale, installing
+├── LICENSE                     # GPL-3.0-or-later, matching the metainfo declaration
 ├── docs/SPEC.md                # this document
+├── docs/images/example.png     # README screenshot, rendered by the real export path
 ├── devtools/
 │   ├── render_preview.py       # drives the real Canvas draw path offscreen
 │   └── shoot_ui.py             # renders the live window/sidebar to PNG

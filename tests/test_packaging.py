@@ -8,6 +8,7 @@ needs, and that the declarations agree with the code.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -190,3 +191,35 @@ def test_manifest_requests_no_blanket_filesystem_access(manifest):
 def test_manifest_says_it_is_unverified():
     """It has never been built; the file must not imply otherwise."""
     assert "NOT VERIFIED" in MANIFEST.read_text()
+
+
+# -- licensing and front page ----------------------------------------------
+
+
+def test_the_declared_license_is_actually_shipped():
+    """metainfo.xml claims GPL-3.0-or-later. A public repository with no
+    LICENSE file is all-rights-reserved by default, so the claim and the
+    repository would say opposite things."""
+    root = ElementTree.parse(METAINFO).getroot()
+    assert root.findtext("project_license") == "GPL-3.0-or-later"
+    text = (ROOT / "LICENSE").read_text()
+    assert "GNU GENERAL PUBLIC LICENSE" in text
+    assert "Version 3, 29 June 2007" in text
+
+
+def test_the_readme_shows_an_image_that_exists():
+    """A README whose screenshot 404s is worse than one with no screenshot."""
+    readme = (ROOT / "README.md").read_text()
+    for target in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme, re.DOTALL):
+        assert (ROOT / target).is_file(), f"README references missing {target}"
+
+
+def test_project_urls_agree_with_each_other():
+    """The homepage and bug tracker pointed at github.com/martinb/ganot8, a
+    namespace that is not the author's - dead links the moment this is
+    public."""
+    root = ElementTree.parse(METAINFO).getroot()
+    urls = {u.get("type"): u.text for u in root.iter("url")}
+    homepage = urls["homepage"]
+    assert homepage.startswith("https://github.com/")
+    assert urls["bugtracker"] == f"{homepage}/issues"
