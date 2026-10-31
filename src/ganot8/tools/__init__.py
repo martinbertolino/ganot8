@@ -15,6 +15,7 @@ from .shapes import BoxTool, LineTool, RectangleTool
 from .ellipse import EllipseTool
 from .freehand import FreehandTool
 from .badge import BadgeTool
+from .crop import CropTool
 
 # Registration order drives the tool strip; Select is registered by its own
 # decorator, the rest are listed explicitly so the order is visible here.
@@ -28,12 +29,14 @@ for _tool in (
     EllipseTool,
     FreehandTool,
     BadgeTool,
+    CropTool,
 ):
     register(_tool)
 del _tool
 
 __all__ = [
     "ArrowTool",
+    "CropTool",
     "BadgeTool",
     "BoxTool",
     "EllipseTool",

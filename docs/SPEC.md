@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 4 complete · **Last updated:** 2026-10-31
+**Status:** Phase 5 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -150,7 +150,7 @@ ganot8/
 │   │   ├── ellipse.py          # EllipseTool
 │   │   ├── freehand.py         # FreehandTool
 │   │   ├── badge.py            # BadgeTool, auto-numbered
-│   │   └── crop.py             # (phase 5) crop + rotate
+│   │   └── crop.py             # CropTool (rotation lives on the Document)
 │   ├── imageio/
 │   │   ├── loader.py           # Pillow-first load, GdkPixbuf fallback
 │   │   ├── exporter.py         # flatten -> Pillow -> save, metadata stripped
@@ -182,17 +182,32 @@ flattened export is byte-identical with and without a selection.
 
 ```python
 Document:
-    source: PIL.Image.Image          # pristine RGBA pixels, never mutated by tools
+    source: PIL.Image.Image          # RGBA pixels; tools never mutate them
     source_path: Path | None
     project_path: Path | None
     annotations: list[Annotation]    # index = z-order, last drawn on top
-    crop: Rect | None                # view/export window into source
-    rotation: int                    # 0/90/180/270
+    history: History
+    effect_cache: EffectCache        # blur/pixelate patches for these pixels
     dirty: bool
 ```
 
 All annotation geometry is stored in **source-image pixel coordinates**, never screen
 coordinates, so zoom, pan, and window size never affect saved output.
+
+**Crop and rotate change the source pixels**, as one undoable command each, rather than
+being stored as a view transform. Earlier drafts had `crop` and `rotation` as document
+fields; they were written into every project file and read by nothing, which is worse
+than not having them. Making them real as a transform would have meant threading an
+inverse through every coordinate mapping — canvas hit-testing, tool input, handle
+drawing, export — for a pair of operations users treat as permanent anyway. Instead
+each one rewrites `source` and maps every annotation through
+`Annotation.transform_points()`, so everything downstream keeps working in plain source
+coordinates. Undo restores both the pixels and the geometry. `transform_points` is the
+only new method a kind must implement for this; `UnknownAnnotation` implements it as a
+no-op so a reshape cannot fail on a kind this build does not understand.
+
+The format change is backwards compatible: the two keys simply stop being written, and
+older projects that contain them load fine because nothing reads them.
 
 Annotation types (dataclasses sharing a common protocol):
 
@@ -396,7 +411,7 @@ motion event.
 ## 8. Keyboard shortcuts
 
 **Implemented:** `Ctrl+O` open · `Ctrl+S` export · `Ctrl+Shift+E` export as ·
-`Ctrl+Shift+S` save project · `Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo ·
+`Ctrl+Shift+S` save project · `Ctrl+[` / `Ctrl+]` rotate left / right · `Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo ·
 `Ctrl+A` select all ·
 `Ctrl+Shift+A` deselect · `Delete` / `Backspace` delete selection ·
 `Ctrl+Page_Up` / `Ctrl+Page_Down` raise / lower · `F9` toggle style sidebar ·
@@ -404,13 +419,14 @@ motion event.
 `Ctrl+Q` quit · arrow keys nudge 1px, `Shift`+arrow 10px · `Escape` cancel or deselect.
 
 **Tool keys:** `S` select · `H` highlight · `R` redact · `U` underline · `A` arrow ·
-`T` text · `B` box · `E` ellipse · `F` freehand · `N` badge. These are bound to the
+`T` text · `B` box · `E` ellipse · `F` freehand · `N` badge · `C` crop. These are
+bound to the
 stateful `win.tool` action, so the detailed action name carries the tool
 (`win.tool::highlight`).
 
 **Planned, not yet bound:** `Ctrl+V` paste, `Ctrl+C` copy flattened and
 `Ctrl+Shift+P` screenshot (phase 6 — all three are clipboard/portal work, so they
-land together); `C` crop; `F1` shortcuts window — note this needs a
+land together); `F1` shortcuts window — note this needs a
 `Gtk.ShortcutsWindow` built and a `win.show-help-overlay` action added, which is
 currently unassigned to any phase; fold it into phase 6.
 
@@ -446,8 +462,8 @@ Each phase ends with a runnable app and is approved separately.
 4. **Save & export** — `.ganot8` container (atomic replace), project open/save, export
    format + quality dialog, overwrite-original with confirmation, project warning
    banner, burn-in action. ✅ done
-5. **v1 extras** — crop/rotate, blur/pixelate redaction (`effects.py` with patch cache),
-   box/ellipse/freehand, numbered badges.
+5. **v1 extras** — blur/pixelate redaction with strength floors (`effects.py`),
+   ellipse, freehand, numbered badges, crop and rotate. ✅ done
 6. **Desktop integration** — clipboard paste/copy, XDG screenshot portal, `.desktop`
    file + icon + MIME associations so Ganot8 appears under Files' "Open With",
    a `Gtk.ShortcutsWindow` behind `F1`, and GSettings persistence (section 9).
@@ -461,7 +477,7 @@ The suite splits in two, and the distinction matters for CI:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
   `test_exporter`, `test_project`, `test_burn_in`, `test_resources`, `test_effects`,
-  `test_shapes_extra`, `test_spec`.
+  `test_shapes_extra`, `test_reshape`, `test_spec`.
 - **Needs a display** (124 tests as of phase 4) — `test_tools`, `test_core_tools`,
   `test_window`, `test_centering`. These construct real GTK widgets, and
   `test_centering` presents a real toplevel and drives genuine allocation cycles.

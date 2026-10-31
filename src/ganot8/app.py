@@ -29,6 +29,8 @@ _ACCELERATORS = {
     "win.raise-annotation": ("<Control>Page_Up",),
     "win.lower-annotation": ("<Control>Page_Down",),
     "win.save-project": ("<Control><Shift>s",),
+    "win.rotate-left": ("<Control>bracketleft",),
+    "win.rotate-right": ("<Control>bracketright",),
     "win.toggle-sidebar": ("F9",),
     "app.quit": ("<Control>q",),
 }
@@ -45,6 +47,7 @@ _TOOL_ACCELERATORS = {
     "ellipse": "e",
     "freehand": "f",
     "badge": "n",
+    "crop": "c",
 }
 
 _STYLESHEET = b"""

@@ -180,6 +180,39 @@ class BurnInRedactions(Command):
         return not self.entries
 
 
+class ReshapeDocument(Command):
+    """Replace the source pixels and move every annotation to match.
+
+    Crop and rotate both change the image's shape, so annotations have to be
+    carried across or they would end up pointing at the wrong content. The
+    annotations are transformed by the caller; this records both ends so the
+    whole thing undoes as one step.
+    """
+
+    def __init__(self, document, before_image, after_image, annotations, before, after, label):
+        self.document = document
+        self.before_image = before_image
+        self.after_image = after_image
+        self.annotations = list(annotations)
+        self.before = [dict(state) for state in before]
+        self.after = [dict(state) for state in after]
+        self.label = label
+
+    def do(self) -> None:
+        self._apply(self.after_image, self.after)
+
+    def undo(self) -> None:
+        self._apply(self.before_image, self.before)
+
+    def _apply(self, image, states) -> None:
+        for annotation, state in zip(self.annotations, states):
+            annotation.restore(state)
+        self.document.replace_source(image)
+
+    def is_noop(self) -> bool:
+        return self.before_image is self.after_image
+
+
 class History(GObject.Object):
     """A linear undo stack. Doing something new discards the redo branch."""
 

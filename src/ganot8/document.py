@@ -16,7 +16,8 @@ from gi.repository import GObject
 
 from .annotations import Annotation, Redact, annotation_from_dict
 from .effects import EffectCache
-from .history import BurnInRedactions, History
+from .geometry import Point, Rect
+from .history import BurnInRedactions, History, ReshapeDocument
 from .imageio.loader import LoadedImage
 from .surfaces import CairoImage, new_surface, pil_to_surface, surface_to_pil
 
@@ -37,8 +38,6 @@ class Document(GObject.Object):
         self.project_path: Path | None = None
         self.annotations: list[Annotation] = []
         self.history = History()
-        self.rotation: int = 0
-        self.crop = None
         self._dirty = False
         self._cairo_image: CairoImage | None = None
         #: Original filename remembered from a project, for export naming.
@@ -77,9 +76,6 @@ class Document(GObject.Object):
         document.annotations = [
             annotation_from_dict(entry) for entry in loaded.annotations
         ]
-        rotation = loaded.data.get("rotation", 0)
-        if isinstance(rotation, int):
-            document.rotation = rotation
         document.mark_clean()
         return document
 
@@ -169,6 +165,75 @@ class Document(GObject.Object):
     @property
     def redactions(self) -> list[Annotation]:
         return [a for a in self.annotations if isinstance(a, Redact)]
+
+    # -- reshaping the image ---------------------------------------------
+
+    def crop_to(self, rect: Rect) -> bool:
+        """Crop to ``rect``, carrying the annotations with it.
+
+        Returns False when the rect is empty or already the whole image.
+        """
+        box = self._clamp_box(rect)
+        if box is None:
+            return False
+        left, top, right, bottom = box
+        if (left, top, right, bottom) == (0, 0, self.width, self.height):
+            return False
+
+        cropped = self.source.crop(box)
+        return self._reshape(
+            cropped,
+            lambda point: Point(point.x - left, point.y - top),
+            label="Crop",
+        )
+
+    def rotate_by(self, degrees: int) -> bool:
+        """Rotate by a multiple of 90 degrees, clockwise for positive values."""
+        import cairo  # noqa: F401  (kept local; only surfaces needs it)
+        from PIL import Image as PILImage
+
+        degrees %= 360
+        if degrees not in (90, 180, 270):
+            return False
+
+        width, height = self.size
+        if degrees == 90:
+            # PIL rotates anticlockwise, so clockwise is its ROTATE_270.
+            rotated = self.source.transpose(PILImage.Transpose.ROTATE_270)
+            mapper = lambda point: Point(height - point.y, point.x)  # noqa: E731
+            label = "Rotate Right"
+        elif degrees == 180:
+            rotated = self.source.transpose(PILImage.Transpose.ROTATE_180)
+            mapper = lambda point: Point(width - point.x, height - point.y)  # noqa: E731
+            label = "Rotate 180"
+        else:
+            rotated = self.source.transpose(PILImage.Transpose.ROTATE_90)
+            mapper = lambda point: Point(point.y, width - point.x)  # noqa: E731
+            label = "Rotate Left"
+
+        return self._reshape(rotated, mapper, label=label)
+
+    def _reshape(self, new_image, mapper, *, label: str) -> bool:
+        annotations = list(self.annotations)
+        before = [a.state() for a in annotations]
+        for annotation in annotations:
+            annotation.transform_points(mapper)
+        after = [a.state() for a in annotations]
+        return self.history.push(
+            ReshapeDocument(
+                self, self._source, new_image, annotations, before, after, label
+            )
+        )
+
+    def _clamp_box(self, rect: Rect) -> tuple[int, int, int, int] | None:
+        rect = rect.normalized()
+        left = max(0, min(int(round(rect.left)), self.width))
+        top = max(0, min(int(round(rect.top)), self.height))
+        right = max(left, min(int(round(rect.right)), self.width))
+        bottom = max(top, min(int(round(rect.bottom)), self.height))
+        if right - left < 1 or bottom - top < 1:
+            return None
+        return (left, top, right, bottom)
 
     def burn_in_redactions(self) -> bool:
         """Merge every redaction into the source pixels, as one undo step.

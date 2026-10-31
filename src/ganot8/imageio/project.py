@@ -104,8 +104,6 @@ def save(document, path: str | Path) -> Path:
             "source": SOURCE_ENTRY,
         },
         "source_name": document.source_path.name if document.source_path else None,
-        "rotation": document.rotation,
-        "crop": document.crop.to_list() if document.crop is not None else None,
         "annotations": document.annotations_to_list(),
     }
 

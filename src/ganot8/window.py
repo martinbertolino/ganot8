@@ -170,6 +170,10 @@ class Window(Adw.ApplicationWindow):
         edit_section.append("Raise", "win.raise-annotation")
         edit_section.append("Lower", "win.lower-annotation")
         menu.append_section(None, edit_section)
+        image_section = Gio.Menu()
+        image_section.append("Rotate Left", "win.rotate-left")
+        image_section.append("Rotate Right", "win.rotate-right")
+        menu.append_section(None, image_section)
         view_section = Gio.Menu()
         view_section.append("Zoom to Fit", "win.zoom-fit")
         view_section.append("Actual Size", "win.zoom-100")
@@ -425,6 +429,8 @@ class Window(Adw.ApplicationWindow):
             ("save-project", self._action_save_project),
             ("overwrite-original", self._action_overwrite_original),
             ("burn-in", self._action_burn_in),
+            ("rotate-left", lambda *_: self._rotate(-90)),
+            ("rotate-right", lambda *_: self._rotate(90)),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", callback)
@@ -534,6 +540,8 @@ class Window(Adw.ApplicationWindow):
             "toggle-sidebar",
             "save-project",
             "overwrite-original",
+            "rotate-left",
+            "rotate-right",
         ):
             action = self.lookup_action(name)
             if action is not None:
@@ -748,6 +756,14 @@ class Window(Adw.ApplicationWindow):
 
     def _action_toggle_sidebar(self, *_args) -> None:
         self._split.set_show_sidebar(not self._split.get_show_sidebar())
+
+    def _rotate(self, degrees: int) -> None:
+        if self._document is None:
+            return
+        self._canvas.clear_selection()
+        if self._document.rotate_by(degrees):
+            self._canvas.zoom_fit()
+            self._update_title()
 
     def _reorder(self, direction: int) -> None:
         if self._document is None or len(self._canvas.selection) != 1:

@@ -15,6 +15,7 @@ BUNDLED = (
     "ganot8-redact-symbolic",
     "ganot8-ellipse-symbolic",
     "ganot8-badge-symbolic",
+    "ganot8-crop-symbolic",
 )
 
 

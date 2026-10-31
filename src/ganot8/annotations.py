@@ -129,6 +129,15 @@ class Annotation:
     def set_handle(self, handle: Handle, point: Point, *, constrain: bool = False) -> None:
         raise NotImplementedError
 
+    def transform_points(self, mapper) -> None:
+        """Map every point defining this annotation through ``mapper``.
+
+        Used when the image itself changes shape - cropping and rotating - so
+        annotations stay on the content they were placed over. A kind only has
+        to say what its defining points are; the caller supplies the mapping.
+        """
+        raise NotImplementedError
+
     # -- serialisation ---------------------------------------------------
 
     def geometry_to_dict(self) -> dict[str, Any]:
@@ -217,6 +226,14 @@ class RectAnnotation(Annotation):
     def set_handle(self, handle: Handle, point: Point, *, constrain: bool = False) -> None:
         if handle in RECT_HANDLES:
             self.rect = resize_rect(self.rect, handle, point, square=constrain)
+
+    def transform_points(self, mapper) -> None:
+        rect = self.rect.normalized()
+        corners = (
+            mapper(Point(rect.left, rect.top)),
+            mapper(Point(rect.right, rect.bottom)),
+        )
+        self.rect = Rect.from_points(*corners)
 
     def geometry_to_dict(self) -> dict[str, Any]:
         return {"rect": self.rect.to_list()}
@@ -315,6 +332,9 @@ class UnknownAnnotation(Annotation):
         return False
 
     def move(self, dx: float, dy: float) -> None:
+        return
+
+    def transform_points(self, mapper) -> None:
         return
 
     def to_dict(self) -> dict[str, Any]:
@@ -509,6 +529,10 @@ class LineAnnotation(Annotation):
     def hit_test(self, point: Point, tolerance: float) -> bool:
         reach = self.stroke_width / 2 + tolerance
         return distance_to_segment(point, self.start, self.end) <= reach
+
+    def transform_points(self, mapper) -> None:
+        self.start = mapper(self.start)
+        self.end = mapper(self.end)
 
     def geometry_to_dict(self) -> dict[str, Any]:
         return {"start": self.start.to_list(), "end": self.end.to_list()}
@@ -752,6 +776,11 @@ class TextLabel(Annotation):
         PangoCairo.show_layout(cr, layout)
         cr.restore()
 
+    def transform_points(self, mapper) -> None:
+        # Only the anchor moves: the text itself stays upright, which is what
+        # anyone rotating a screenshot expects of a label.
+        self.anchor = mapper(self.anchor)
+
     def geometry_to_dict(self) -> dict[str, Any]:
         return {
             "anchor": self.anchor.to_list(),
@@ -924,6 +953,9 @@ class Freehand(Annotation):
     def set_handle(self, handle: Handle, point: Point, *, constrain: bool = False) -> None:
         return
 
+    def transform_points(self, mapper) -> None:
+        self.points = [mapper(p) for p in self.points]
+
     def geometry_to_dict(self) -> dict[str, Any]:
         return {"points": [p.to_list() for p in self.points]}
 
@@ -994,6 +1026,9 @@ class Badge(Annotation):
         cr.move_to(self.centre.x - width / 2, self.centre.y - height / 2)
         PangoCairo.show_layout(cr, layout)
         cr.restore()
+
+    def transform_points(self, mapper) -> None:
+        self.centre = mapper(self.centre)
 
     def geometry_to_dict(self) -> dict[str, Any]:
         return {

@@ -60,6 +60,7 @@ def test_every_core_tool_is_available(canvas):
         "ellipse",
         "freehand",
         "badge",
+        "crop",
     ]
 
 
