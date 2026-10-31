@@ -23,7 +23,7 @@ privacy-correctness feature, not just a drawing tool.
 
 | Decision | Choice |
 |---|---|
-| Name / App ID | **Ganot8** / `io.github.martinb.Ganot8`, binary `ganot8` |
+| Name / App ID | **Ganot8** / `io.github.martinbertolino.Ganot8`, binary `ganot8` |
 | Stack | Python 3 + GTK 4 + libadwaita (PyGObject), Cairo rendering, Pillow + GdkPixbuf I/O |
 | Edit model | **Non-destructive vector annotations** over a pristine source image |
 | Save default | `Ctrl+S` exports a flattened copy; the original file is never written implicitly |
@@ -165,7 +165,7 @@ ganot8/
 │   └── settings.py             # GSettings wrapper with in-memory fallback
 ├── meson.build, meson.options  # installs package, launcher, data; -Dpython for the shebang
 ├── meson/post-install.py       # refreshes desktop caches, skipped under DESTDIR
-├── io.github.martinb.Ganot8.yml   # Flatpak manifest (never built; see section 13)
+├── io.github.martinbertolino.Ganot8.yml   # Flatpak manifest (never built; see section 13)
 ├── src/ganot8.in               # launcher template, configured with the install paths
 ├── install-user.sh             # registers the app under ~/.local; --uninstall undoes it
 ├── data/
@@ -504,7 +504,7 @@ from the same accelerator tables, so a shortcut cannot be documented without bei
 or added without appearing there. It uses `Adw.ShortcutsDialog`, not the deprecated
 `Gtk.ShortcutsWindow`.
 
-## 9. Settings (GSettings, schema `io.github.martinb.Ganot8`)
+## 9. Settings (GSettings, schema `io.github.martinbertolino.Ganot8`)
 
 Persisted: window width/height/maximized, whether the style sidebar is shown, the last
 export format and quality, and the last-used style per tool.
@@ -526,6 +526,17 @@ cannot inject an attribute the annotation does not understand, and a value of th
 type is dropped rather than coerced. Unreadable JSON is discarded outright — this is a
 convenience, not something the user created, and it must never stop the application
 starting.
+
+> **The app ID changed** from `io.github.martinb.Ganot8` to
+> `io.github.martinbertolino.Ganot8` when the project was published. The `io.github.…`
+> convention is not decorative: Flathub requires that namespace to be one the author
+> actually controls, and `martinb` is not the author's GitHub account, so the old ID
+> could never have been published under. The rename covers the schema **path** as well
+> as its id (`/io/github/martinbertolino/Ganot8/`), which orphans any settings stored
+> under the old path — they were migrated with `dconf dump` / `dconf load` on the
+> development machine, and the stale `/io/github/martinb/Ganot8/` subtree is harmless
+> but can be dropped with `dconf reset -f /io/github/martinb/Ganot8/`. Nobody else had
+> the old build installed, so no migration code is warranted in the application itself.
 
 `settings.py` falls back to an in-memory dictionary mirroring the schema defaults when
 no schema can be found, so the application still runs, just without remembering
@@ -720,7 +731,7 @@ unrun.
 
 ### The Flatpak manifest has never been built
 
-`io.github.martinb.Ganot8.yml` is written and its source URLs and checksums were fetched
+`io.github.martinbertolino.Ganot8.yml` is written and its source URLs and checksums were fetched
 from PyPI and are correct, but `flatpak-builder` is not installed on the development
 machine, no GNOME runtime is present, and the Flathub remote is filtered — so the build
 steps are conventional but unproven. The manifest says so in its own header rather than

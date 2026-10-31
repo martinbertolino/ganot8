@@ -6,7 +6,7 @@
     theme directory, which means an installed build does not depend on the
     icon cache having been refreshed.
   -->
-  <gresource prefix="/io/github/martinb/Ganot8/icons">
+  <gresource prefix="/io/github/martinbertolino/Ganot8/icons">
     <file preprocess="xml-stripblanks">scalable/actions/ganot8-select-symbolic.svg</file>
     <file preprocess="xml-stripblanks">scalable/actions/ganot8-highlight-symbolic.svg</file>
     <file preprocess="xml-stripblanks">scalable/actions/ganot8-redact-symbolic.svg</file>

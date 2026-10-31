@@ -776,7 +776,7 @@ def test_the_shortcuts_dialog_lists_bound_shortcuts_only(window):
 def test_every_shortcut_the_dialog_names_is_actually_bound():
     from ganot8.shortcuts import SECTIONS
 
-    app = Adw.Application(application_id="io.github.martinb.Ganot8.Test")
+    app = Adw.Application(application_id="io.github.martinbertolino.Ganot8.Test")
     window = Window(application=app)
     try:
         window._install_actions()

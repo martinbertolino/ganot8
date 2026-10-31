@@ -8,6 +8,6 @@
       <match type="string" value="PK\003\004" offset="0"/>
     </magic>
     <sub-class-of type="application/zip"/>
-    <icon name="io.github.martinb.Ganot8"/>
+    <icon name="io.github.martinbertolino.Ganot8"/>
   </mime-type>
 </mime-info>

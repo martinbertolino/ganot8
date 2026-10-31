@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.martinb.Ganot8</id>
+  <id>io.github.martinbertolino.Ganot8</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
 
-  <developer id="io.github.martinb">
+  <developer id="io.github.martinbertolino">
     <name>Martin Bertolino</name>
   </developer>
 
@@ -37,7 +37,7 @@
     </ul>
   </description>
 
-  <launchable type="desktop-id">io.github.martinb.Ganot8.desktop</launchable>
+  <launchable type="desktop-id">io.github.martinbertolino.Ganot8.desktop</launchable>
 
   <categories>
     <category>Graphics</category>

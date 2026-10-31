@@ -5,7 +5,7 @@ project(
   license: 'GPL-3.0-or-later',
 )
 
-app_id = 'io.github.martinb.Ganot8'
+app_id = 'io.github.martinbertolino.Ganot8'
 
 prefix = get_option('prefix')
 bindir = get_option('bindir')

@@ -117,7 +117,7 @@ def test_the_shipped_schema_matches_the_fallback_defaults():
 
     from ganot8.settings import SCHEMA_DIR
 
-    xml = SCHEMA_DIR / "io.github.martinb.Ganot8.gschema.xml"
+    xml = SCHEMA_DIR / "io.github.martinbertolino.Ganot8.gschema.xml"
     assert xml.is_file(), "the schema must ship with the source"
     keys = {
         key.get("name")

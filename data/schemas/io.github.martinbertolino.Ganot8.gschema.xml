@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="io.github.martinb.Ganot8" path="/io/github/martinb/Ganot8/">
+  <schema id="io.github.martinbertolino.Ganot8" path="/io/github/martinbertolino/Ganot8/">
 
     <key name="window-width" type="i">
       <default>1200</default>

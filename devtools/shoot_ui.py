@@ -97,7 +97,7 @@ def main(argv: list[str]) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     Adw.init()
-    app = Adw.Application(application_id="io.github.martinb.Ganot8.Devtool")
+    app = Adw.Application(application_id="io.github.martinbertolino.Ganot8.Devtool")
 
     def on_activate(application: Adw.Application) -> None:
         window = Window(application=application)

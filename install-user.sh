@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-APP_ID="io.github.martinb.Ganot8"
+APP_ID="io.github.martinbertolino.Ganot8"
 SOURCE_DIR="$PWD"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 BIN="$HOME/.local/bin"

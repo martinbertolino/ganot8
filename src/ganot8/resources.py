@@ -24,7 +24,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 log = logging.getLogger(__name__)
 
 #: Where icons live inside the GResource bundle.
-RESOURCE_PATH = "/io/github/martinb/Ganot8/icons"
+RESOURCE_PATH = "/io/github/martinbertolino/Ganot8/icons"
 
 RESOURCE_NAME = f"{APP_ID}.gresource"
 

@@ -39,7 +39,7 @@ fi
 SCHEMA_DIR="data/schemas"
 if command -v glib-compile-schemas >/dev/null 2>&1; then
     if [[ ! -f "$SCHEMA_DIR/gschemas.compiled" ]] \
-       || [[ "$SCHEMA_DIR/io.github.martinb.Ganot8.gschema.xml" -nt "$SCHEMA_DIR/gschemas.compiled" ]]; then
+       || [[ "$SCHEMA_DIR/io.github.martinbertolino.Ganot8.gschema.xml" -nt "$SCHEMA_DIR/gschemas.compiled" ]]; then
         glib-compile-schemas "$SCHEMA_DIR" || \
             echo "ganot8: schema compile failed; settings will not persist" >&2
     fi
