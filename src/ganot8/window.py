@@ -289,7 +289,7 @@ class Window(Adw.ApplicationWindow):
             redact_styles.append(label)
         self._redact_style_row = Adw.ComboRow(
             title="Style",
-            subtitle="A solid block is the safe choice for anything sensitive",
+            subtitle="Solid is safest",
             model=redact_styles,
         )
         self._redact_style_row.connect("notify::selected", self._on_redact_style_changed)
@@ -297,7 +297,7 @@ class Window(Adw.ApplicationWindow):
 
         self._strength_row = Adw.SpinRow(
             title="Strength",
-            subtitle="Below a floor the content stays readable, so it cannot go weaker",
+            subtitle="Has a safe minimum",
             adjustment=Gtk.Adjustment(value=50, lower=1, upper=100, step_increment=5),
         )
         self._strength_row.connect("notify::value", self._on_strength_changed)

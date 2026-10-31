@@ -13,6 +13,8 @@ class RedactTool(RectangleTool):
     label: ClassVar[str] = "Redact"
     icon_name: ClassVar[str] = "ganot8-redact-symbolic"
     accelerator: ClassVar[str] = "r"
-    tooltip: ClassVar[str] = "Block out a region (R)"
+    # Names the styles, because they live in the sidebar rather than in the
+    # tool strip and are otherwise easy to miss entirely.
+    tooltip: ClassVar[str] = "Hide a region \u2014 solid, blur or pixelate (R)"
     annotation_type: ClassVar[type] = Redact
     create_label: ClassVar[str] = "Add Redaction"

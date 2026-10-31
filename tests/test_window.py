@@ -815,3 +815,21 @@ def test_a_window_without_persistence_still_works():
     window = Window(settings=settings)
     window.save_state()  # must not raise
     assert window.canvas is not None
+
+
+def test_redaction_style_value_is_readable_not_truncated(window):
+    """Long subtitles squeezed the ComboRow until it showed "Pixel...".
+
+    The hint matters, but not at the cost of being unable to read the setting.
+    """
+    assert len(window._redact_style_row.get_subtitle()) <= 24
+    assert len(window._strength_row.get_subtitle()) <= 24
+
+
+def test_the_redact_tool_names_its_styles(window):
+    """They live in the sidebar, not the tool strip, so the tool has to say so."""
+    from ganot8.tools import registered_tools
+
+    redact = next(t for t in registered_tools() if t.name == "redact")
+    for style in ("solid", "blur", "pixelate"):
+        assert style in redact.tooltip.lower(), style

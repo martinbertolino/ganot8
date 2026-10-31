@@ -346,8 +346,13 @@ below 6.0, whatever the slider says. Without them a user could pick a reassuring
 value that leaves the content readable. Measured on dark text over a light field, mean
 neighbouring-pixel difference — a proxy for how much glyph structure survives — falls
 from **5.29 to 0.05 (blur) and 0.10 (pixelate)**, and stays below 0.5 even at strength 1.
-Solid block remains the default, and the style row carries the line "A solid block is
-the safe choice for anything sensitive".
+Solid block remains the default, and the style row is subtitled "Solid is safest".
+
+Blur and pixelate are **styles of the one Redact tool**, chosen from a dropdown in the
+sidebar, rather than separate entries in the tool strip — they are all "hide this", and
+three tools mapping to one annotation kind would be a worse model. The cost is
+discoverability: someone scanning the tool strip for "blur" will not find it, which has
+happened in practice. The Redact tooltip therefore names all three styles.
 
 Two further properties hold the privacy line:
 
