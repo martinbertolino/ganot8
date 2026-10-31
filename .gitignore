@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+_build/
+_flatpak/
+.flatpak-builder/
+*.ganot8
+*-annotated.*
