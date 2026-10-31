@@ -294,3 +294,118 @@ def test_every_tool_icon_exists_in_the_theme(window):
     theme = Gtk.IconTheme.get_for_display(_Gdk.Display.get_default())
     missing = [tool.name for tool in registered_tools() if not theme.has_icon(tool.icon_name)]
     assert missing == []
+
+
+# -- phase 4: projects, overwrite, burn-in -------------------------------
+
+
+def _png(tmp_path, name="shot.png", size=(60, 40)):
+    from PIL import Image
+
+    path = tmp_path / name
+    Image.new("RGB", size, (120, 180, 220)).save(path)
+    return path
+
+
+def test_opening_a_project_restores_its_annotations(window, tmp_path):
+    from ganot8.annotations import Redact
+    from ganot8.imageio import project
+
+    source = window.document
+    source.annotations.append(Redact(rect=Rect(0, 0, 10, 10)))
+    path = source.save_project(tmp_path / "saved.ganot8")
+
+    fresh = Window()
+    assert fresh.open_path(path)
+    assert fresh.document.is_project
+    assert [a.kind for a in fresh.document.annotations] == ["redact"]
+    assert project.looks_like_project(path)
+
+
+def test_opening_a_damaged_project_reports_an_error_and_keeps_the_document(window, tmp_path):
+    bad = tmp_path / "broken.ganot8"
+    bad.write_bytes(b"not a zip at all")
+    previous = window.document
+    assert not window.open_path(bad)
+    assert window.document is previous
+
+
+def test_burn_in_is_disabled_without_redactions(window):
+    assert not enabled(window, "burn-in")
+
+
+def test_burn_in_is_enabled_once_a_redaction_exists(window):
+    from ganot8.annotations import Redact
+
+    window.document.annotations.append(Redact(rect=Rect(0, 0, 10, 10)))
+    window.document.mark_dirty()
+    assert enabled(window, "burn-in")
+
+
+def test_redaction_banner_appears_only_for_a_project(window, tmp_path):
+    from ganot8.annotations import Redact
+
+    window.document.annotations.append(Redact(rect=Rect(0, 0, 10, 10)))
+    window.document.mark_dirty()
+    # Not a project yet: nothing on disk retains the original.
+    assert not window._banner.get_revealed()
+
+    window.document.save_project(tmp_path / "p.ganot8")
+    window._update_redaction_banner()
+    assert window._banner.get_revealed()
+    assert "unredacted" in window._banner.get_title()
+
+
+def test_banner_clears_after_burning_in(window, tmp_path):
+    from ganot8.annotations import Redact
+
+    window.document.annotations.append(Redact(rect=Rect(0, 0, 10, 10)))
+    window.document.save_project(tmp_path / "p.ganot8")
+    window._update_redaction_banner()
+    assert window._banner.get_revealed()
+
+    window._burn_in()
+    assert not window._banner.get_revealed()
+
+
+def test_export_refuses_to_write_over_the_source(window, tmp_path):
+    source = _png(tmp_path)
+    assert window.open_path(source)
+    before = source.read_bytes()
+    window._write_export(source)
+    assert source.read_bytes() == before, "Ctrl+S must never touch the original"
+
+
+def test_overwrite_original_does_write_over_the_source(window, tmp_path):
+    """The explicit, confirmed action is the one allowed to do it."""
+    source = _png(tmp_path)
+    assert window.open_path(source)
+    before = source.read_bytes()
+
+    window._write_export(source, allow_source=True)
+    assert source.read_bytes() != before
+
+
+def test_overwrite_original_is_refused_when_there_is_no_file(window):
+    window.lookup_action("overwrite-original").activate(None)
+    # The in-memory document has no source file; nothing should have happened.
+    assert window.document.source_path is None
+
+
+def test_export_uses_the_chosen_quality(window, tmp_path):
+    source = _png(tmp_path, size=(200, 160))
+    assert window.open_path(source)
+
+    window._export_quality = 10
+    low = tmp_path / "low.jpg"
+    window._write_export(low)
+
+    window._export_quality = 95
+    high = tmp_path / "high.jpg"
+    window._write_export(high)
+
+    assert low.stat().st_size < high.stat().st_size
+
+
+def test_save_project_action_is_available_with_a_document(window):
+    assert enabled(window, "save-project")

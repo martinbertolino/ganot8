@@ -144,6 +144,42 @@ class Reorder(Command):
         return self.old_index == self.new_index
 
 
+class BurnInRedactions(Command):
+    """Composite redactions into the source pixels and drop the annotations.
+
+    After this, saving a project no longer carries the hidden content - which
+    is the whole point (docs/SPEC.md section 6.4). Undo restores the previous
+    pixels, so the hidden content *does* remain reachable in memory for as long
+    as this document is open; the confirmation dialog says so rather than
+    implying a stronger guarantee than the code provides.
+    """
+
+    label = "Burn In Redactions"
+
+    def __init__(self, document, burnt_image, redactions):
+        self.document = document
+        self.previous_image = document.source
+        self.burnt_image = burnt_image
+        self.entries = sorted(
+            ((document.annotations.index(a), a) for a in redactions),
+            key=lambda entry: entry[0],
+        )
+
+    def do(self) -> None:
+        for _, annotation in reversed(self.entries):
+            if annotation in self.document.annotations:
+                self.document.annotations.remove(annotation)
+        self.document.replace_source(self.burnt_image)
+
+    def undo(self) -> None:
+        for index, annotation in self.entries:
+            self.document.annotations.insert(index, annotation)
+        self.document.replace_source(self.previous_image)
+
+    def is_noop(self) -> bool:
+        return not self.entries
+
+
 class History(GObject.Object):
     """A linear undo stack. Doing something new discards the redo branch."""
 

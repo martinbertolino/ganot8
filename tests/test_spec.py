@@ -12,6 +12,7 @@ normaliser for that would produce false failures rather than catch real drift.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -101,10 +102,7 @@ def test_display_split_is_accurate(spec):
 
     actual_needs, actual_free = set(), set()
     for path in sorted((ROOT / "tests").glob("test_*.py")):
-        if path.stem == "test_spec":
-            continue  # this module itself: pure file reading, no widgets
-        target = actual_needs if "init_check" in path.read_text() else actual_free
-        target.add(path.stem)
+        (actual_needs if _skips_without_display(path) else actual_free).add(path.stem)
 
     assert documented_needs == actual_needs, (
         f"spec says these need a display: {sorted(documented_needs)}, "
@@ -113,6 +111,22 @@ def test_display_split_is_accurate(spec):
     assert documented_free == actual_free, (
         f"spec lists display-free: {sorted(documented_free)}, actual: {sorted(actual_free)}"
     )
+
+
+def _skips_without_display(path: Path) -> bool:
+    """True if the module calls pytest.skip(..., allow_module_level=True).
+
+    Parsed rather than grepped: this very module mentions both `init_check` and
+    the keyword in its own source, and a text search would misclassify it.
+    """
+    for node in ast.walk(ast.parse(path.read_text())):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "attr", None) != "skip":
+            continue
+        if any(keyword.arg == "allow_module_level" for keyword in node.keywords):
+            return True
+    return False
 
 
 def test_open_issues_section_exists(spec):

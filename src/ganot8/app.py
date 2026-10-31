@@ -28,6 +28,7 @@ _ACCELERATORS = {
     "win.deselect": ("<Control><Shift>a",),
     "win.raise-annotation": ("<Control>Page_Up",),
     "win.lower-annotation": ("<Control>Page_Down",),
+    "win.save-project": ("<Control><Shift>s",),
     "win.toggle-sidebar": ("F9",),
     "app.quit": ("<Control>q",),
 }

@@ -1,6 +1,6 @@
 # Ganot8 — Image Annotation App
 
-**Status:** Phase 3 complete; spec reconciled against the code · **Last updated:** 2026-10-31
+**Status:** Phase 4 complete · **Last updated:** 2026-10-31
 
 This is the living spec for Ganot8. It is meant to be edited as the project grows;
 section 10 is the roadmap, and each phase there is approved and implemented separately.
@@ -129,6 +129,7 @@ ganot8/
 │   ├── app.py                  # Adw.Application: actions, accelerators, file opening
 │   ├── window.py               # header bar, tool strip, style sidebar, text popover
 │   ├── canvas.py               # DrawingArea: zoom/pan, selection, tool dispatch
+│   ├── dialogs.py              # export options (FileDialog takes no custom widgets)
 │   ├── document.py             # source image, annotation list, history, queries
 │   ├── annotations.py          # every annotation kind + the registry
 │   ├── geometry.py             # Point/Rect, handles, resize, segment distance
@@ -149,7 +150,7 @@ ganot8/
 │   ├── imageio/
 │   │   ├── loader.py           # Pillow-first load, GdkPixbuf fallback
 │   │   ├── exporter.py         # flatten -> Pillow -> save, metadata stripped
-│   │   └── project.py          # (phase 4) .ganot8 zip container
+│   │   └── project.py          # .ganot8 zip container: save/load, atomic replace
 │   ├── effects.py              # (phase 5) blur/pixelate patches + surface cache
 │   ├── portal.py               # (phase 6) org.freedesktop.portal.Screenshot
 │   ├── clipboard.py            # (phase 6) paste texture in, copy flattened out
@@ -298,9 +299,15 @@ RGBA (un-premultiply, BGRA→RGBA swap) → `Image.save()` with **no `exif=` and
    the original, unredacted image — do not share it"), and an `Adw.Banner` appears
    whenever a project containing `Redact` annotations is open.
 4. **Burn-in action.** `Document.burn_in_redactions()` composites redactions directly
-   into `source` and removes those annotations, so even the project file no longer holds
-   the hidden content. Irreversible beyond the undo stack, so it is confirmed via
-   `Gtk.AlertDialog` and clears redo.
+   into `source` and removes those annotations, so a project saved afterwards no longer
+   holds the hidden content. It is one undoable command, confirmed through an
+   `Adw.AlertDialog`.
+
+   The dialog is worded to match what the code actually guarantees: *"You can still undo
+   this while the image stays open."* Undo keeps the previous pixels in the command
+   object, so the hidden content stays reachable **in memory** until the document is
+   closed. What burn-in guarantees is about files, not about the running process, and
+   claiming otherwise would be a stronger promise than the implementation makes.
 
 `Redact` enforces rule 1 at the drawing level, not by convention: `draw()` hard-codes
 alpha to `1.0` and ignores both `opacity` and the alpha channel of `color`, and
@@ -359,7 +366,8 @@ motion event.
 ## 8. Keyboard shortcuts
 
 **Implemented:** `Ctrl+O` open · `Ctrl+S` export · `Ctrl+Shift+E` export as ·
-`Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo · `Ctrl+A` select all ·
+`Ctrl+Shift+S` save project · `Ctrl+Z` undo · `Ctrl+Shift+Z` / `Ctrl+Y` redo ·
+`Ctrl+A` select all ·
 `Ctrl+Shift+A` deselect · `Delete` / `Backspace` delete selection ·
 `Ctrl+Page_Up` / `Ctrl+Page_Down` raise / lower · `F9` toggle style sidebar ·
 `Ctrl+0` zoom to fit · `Ctrl+1` actual size · `Ctrl+-` / `Ctrl+=` zoom ·
@@ -369,8 +377,9 @@ motion event.
 `T` text · `B` box. These are bound to the stateful `win.tool` action, so the detailed
 action name carries the tool (`win.tool::highlight`).
 
-**Planned, not yet bound:** `Ctrl+V` paste and `Ctrl+Shift+P` screenshot (phase 6);
-`Ctrl+Shift+S` save project and `Ctrl+C` copy flattened (phase 4); `E` ellipse,
+**Planned, not yet bound:** `Ctrl+V` paste, `Ctrl+C` copy flattened and
+`Ctrl+Shift+P` screenshot (phase 6 — all three are clipboard/portal work, so they
+land together); `E` ellipse,
 `F` freehand, `N` badge, `C` crop (phase 5); `F1` shortcuts window — note this needs a
 `Gtk.ShortcutsWindow` built and a `win.show-help-overlay` action added, which is
 currently unassigned to any phase; fold it into phase 6.
@@ -399,9 +408,9 @@ Each phase ends with a runnable app and is approved separately.
    kind, **Box**, with its creation tool: the engine is not demonstrable or testable
    without something to select, and Box is the reference the phase 3 tools copy. ✅ done
 3. **The five core tools** — highlight, redact (solid), underline, arrow, text. ✅ done
-4. **Save & export** — flatten pipeline, format/quality options, `.ganot8` container,
-   metadata stripping, overwrite-original with confirmation, project warning banner,
-   burn-in action.
+4. **Save & export** — `.ganot8` container (atomic replace), project open/save, export
+   format + quality dialog, overwrite-original with confirmation, project warning
+   banner, burn-in action. ✅ done
 5. **v1 extras** — crop/rotate, blur/pixelate redaction (`effects.py` with patch cache),
    box/ellipse/freehand, numbered badges.
 6. **Desktop integration** — clipboard paste/copy, XDG screenshot portal, `.desktop`
@@ -416,7 +425,7 @@ The suite splits in two, and the distinction matters for CI:
 - **Display-free** (141 tests as of phase 3) — pure logic and image handling, runnable anywhere:
   `test_surfaces`, `test_geometry`, `test_annotations`, `test_core_annotations`,
   `test_history`, `test_document`, `test_document_annotations`, `test_loader`,
-  `test_exporter`.
+  `test_exporter`, `test_project`, `test_burn_in`, `test_spec`.
 - **Needs a display** (101 tests as of phase 3) — `test_tools`, `test_core_tools`, `test_window`,
   `test_centering`. These construct real GTK widgets, and `test_centering` presents a
   real toplevel and waits for genuine allocation cycles. Each module calls
@@ -511,3 +520,20 @@ the sidebar's Line Width row has no visible effect on a default box. The row is 
 because `STYLE_STROKE_WIDTH` is in `Box.style_properties`, which is still correct for
 the un-filled case. Either draw a fill *and* an outline, or hide the row while `filled`
 is set.
+
+### Adw.Banner warns about its own layout when the window is resized
+
+Resizing the window while the banner is visible intermittently logs
+`GtkBox reported min width 642 and natural width 459 ... natural size must be >= min
+size`. Measured: banner hidden gives 0 warnings over 5 runs, banner visible gives 1 in
+roughly every 2. It reproduces with any banner text and with or without the dismiss
+button, and the inconsistency is inside libadwaita's own box — the only inputs are a
+title string and a button label. No visible breakage, console noise only. Worth a
+libadwaita bug report rather than a workaround here.
+
+### Closing the window discards unsaved annotations silently
+
+There is no unsaved-changes prompt. `Document.dirty` is tracked and `save_project`
+clears it, but nothing consults it on close, so quitting with annotations that were
+never exported or saved loses them without a word. Not in any phase's scope so far;
+it belongs with the phase 6 window/session work.

@@ -19,9 +19,10 @@ from .annotations import (
     STYLE_WAVY,
 )
 from .canvas import Canvas
+from .dialogs import ExportOptionsDialog
 from .document import Document
 from .history import Reorder, StateChange
-from .imageio import exporter
+from .imageio import exporter, project
 from .imageio.loader import UnsupportedImageError, load
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,8 @@ class Window(Adw.ApplicationWindow):
         self._syncing = False
         self._text_popover: Gtk.Popover | None = None
         self._text_cancelled = False
+        self._export_format = "PNG"
+        self._export_quality = 92
 
         self._build_ui()
         self._install_actions()
@@ -370,6 +373,9 @@ class Window(Adw.ApplicationWindow):
             ("raise-annotation", lambda *_: self._reorder(+1)),
             ("lower-annotation", lambda *_: self._reorder(-1)),
             ("toggle-sidebar", self._action_toggle_sidebar),
+            ("save-project", self._action_save_project),
+            ("overwrite-original", self._action_overwrite_original),
+            ("burn-in", self._action_burn_in),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", callback)
@@ -389,7 +395,10 @@ class Window(Adw.ApplicationWindow):
     # -- document handling -----------------------------------------------
 
     def open_path(self, path: str | Path) -> bool:
-        """Load ``path`` into this window. Returns True on success."""
+        """Load ``path`` into this window, as a project or a plain image."""
+        path = Path(path)
+        if project.looks_like_project(path):
+            return self._open_project(path)
         try:
             loaded = load(path)
         except UnsupportedImageError as error:
@@ -401,10 +410,28 @@ class Window(Adw.ApplicationWindow):
             return False
 
         self.set_document(Document(loaded))
-        for warning in loaded.warnings:
+        self._show_warnings(loaded.warnings)
+        return True
+
+    def _open_project(self, path: Path) -> bool:
+        try:
+            document = Document.from_project(path)
+        except project.ProjectError as error:
+            self._show_error("Could not open project", str(error))
+            return False
+        except Exception as error:  # defensive
+            log.exception("unexpected failure loading project %s", path)
+            self._show_error("Could not open project", f"{path.name}: {error}")
+            return False
+
+        self.set_document(document)
+        self._show_warnings(document.loaded.warnings)
+        return True
+
+    def _show_warnings(self, warnings) -> None:
+        for warning in warnings:
             self._banner.set_title(warning)
             self._banner.set_revealed(True)
-        return True
 
     def set_document(self, document: Document) -> None:
         if self._document is not None and self._history_handler:
@@ -415,8 +442,12 @@ class Window(Adw.ApplicationWindow):
         )
         self._canvas.set_document(document)
         self._stack.set_visible_child_name("canvas")
+        # Burn-in availability and the banner both depend on document content,
+        # not just on history, so track the document itself.
+        document.connect("changed", lambda *_: self._on_document_changed())
         self._update_title()
         self._update_sensitivity()
+        self._update_redaction_banner()
 
     @property
     def document(self) -> Document | None:
@@ -452,6 +483,8 @@ class Window(Adw.ApplicationWindow):
             "zoom-100",
             "select-all",
             "toggle-sidebar",
+            "save-project",
+            "overwrite-original",
         ):
             action = self.lookup_action(name)
             if action is not None:
@@ -469,6 +502,10 @@ class Window(Adw.ApplicationWindow):
             if action is not None:
                 action.set_enabled(enabled)
 
+        burn_in = self.lookup_action("burn-in")
+        if burn_in is not None:
+            burn_in.set_enabled(has_document and self._document.has_redactions)
+
         history = self._document.history if has_document else None
         can_undo = bool(history and history.can_undo)
         can_redo = bool(history and history.can_redo)
@@ -482,6 +519,30 @@ class Window(Adw.ApplicationWindow):
         self._redo_button.set_tooltip_text(
             f"Redo {history.redo_label} (Ctrl+Shift+Z)" if can_redo else "Nothing to redo"
         )
+
+    def _on_document_changed(self) -> None:
+        self._update_sensitivity()
+        self._update_redaction_banner()
+
+    def _update_redaction_banner(self) -> None:
+        """Warn while a project holding redactions is open.
+
+        The project keeps the unredacted original so the redaction stays
+        editable; that is exactly why the file must not be passed around in
+        place of an export (docs/SPEC.md section 6.3).
+        """
+        document = self._document
+        show = bool(document is not None and document.is_project and document.has_redactions)
+        if show:
+            self._banner.set_title(
+                "This project still contains the original, unredacted image. "
+                "Share an export, not this file."
+            )
+            self._banner.set_revealed(True)
+        elif self._banner.get_revealed() and self._banner.get_title().startswith(
+            "This project still contains"
+        ):
+            self._banner.set_revealed(False)
 
     # -- style sidebar ---------------------------------------------------
 
@@ -640,6 +701,14 @@ class Window(Adw.ApplicationWindow):
 
     def _open_filters(self) -> Gio.ListStore:
         store = Gio.ListStore.new(Gtk.FileFilter)
+        everything = Gtk.FileFilter(name="Images and projects")
+        for mime in _OPENABLE_MIME:
+            everything.add_mime_type(mime)
+        everything.add_pattern(f"*{project.SUFFIX}")
+        store.append(everything)
+        projects = Gtk.FileFilter(name="Ganot8 projects")
+        projects.add_pattern(f"*{project.SUFFIX}")
+        store.append(projects)
         images = Gtk.FileFilter(name="Images")
         for mime in _OPENABLE_MIME:
             images.add_mime_type(mime)
@@ -663,18 +732,29 @@ class Window(Adw.ApplicationWindow):
         """Ctrl+S: export a flattened copy, never touching the original."""
         if self._document is None:
             return
-        target = exporter.default_export_path(self._document.source_path)
+        target = exporter.default_export_path(self._document.export_basis)
         if target.exists():
             self._action_export_as()
             return
         self._write_export(target)
 
     def _action_export_as(self, *_args) -> None:
+        """Choose format and quality, then where to put it."""
         if self._document is None:
             return
-        suggested = exporter.default_export_path(self._document.source_path)
+        options = ExportOptionsDialog(
+            initial_format=self._export_format, initial_quality=self._export_quality
+        )
+        options.choose(self, self._on_export_options_chosen)
+
+    def _on_export_options_chosen(self, export_format, quality: int) -> None:
+        self._export_format = export_format.name
+        self._export_quality = quality
+
+        suggested = exporter.default_export_path(self._document.export_basis)
+        suggested = suggested.with_suffix(export_format.extensions[0])
         dialog = Gtk.FileDialog(title="Export Image", initial_name=suggested.name)
-        if self._document.source_path is not None:
+        if suggested.parent.is_dir():
             dialog.set_initial_folder(Gio.File.new_for_path(str(suggested.parent)))
         dialog.set_filters(self._export_filters())
         dialog.save(self, None, self._on_export_response)
@@ -699,19 +779,23 @@ class Window(Adw.ApplicationWindow):
         if file is not None and file.get_path():
             self._write_export(Path(file.get_path()))
 
-    def _write_export(self, target: Path) -> None:
+    def _write_export(self, target: Path, *, allow_source: bool = False) -> None:
         if self._document is None:
             return
-        source = self._document.source_path
-        if source is not None and target.resolve() == source.resolve():
+        source = self._document.export_basis
+        if not allow_source and source is not None and source.exists() and (
+            target.resolve() == source.resolve()
+        ):
             self._show_error(
                 "Refusing to overwrite the original",
                 "Ganot8 exports a copy so the original image stays intact.\n"
-                "Choose a different filename.",
+                "Choose a different filename, or use Overwrite Original from the menu.",
             )
             return
         try:
-            written = exporter.export(self._document, target)
+            written = exporter.export(
+                self._document, target, jpeg_quality=self._export_quality
+            )
         except Exception as error:
             log.exception("export to %s failed", target)
             self._show_error("Could not export image", f"{target.name}: {error}")
@@ -725,6 +809,147 @@ class Window(Adw.ApplicationWindow):
     def _reveal(self, path: Path) -> None:
         launcher = Gtk.FileLauncher(file=Gio.File.new_for_path(str(path)))
         launcher.open_containing_folder(self, None, None)
+
+    # -- projects --------------------------------------------------------
+
+    def _action_save_project(self, *_args) -> None:
+        if self._document is None:
+            return
+        suggested = self._document.project_path or project.default_project_path(
+            self._document.export_basis
+        )
+        dialog = Gtk.FileDialog(title="Save Project", initial_name=suggested.name)
+        if suggested.parent.is_dir():
+            dialog.set_initial_folder(Gio.File.new_for_path(str(suggested.parent)))
+        dialog.set_filters(self._project_filters())
+        dialog.save(self, None, self._on_save_project_response)
+
+    def _project_filters(self) -> Gio.ListStore:
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        projects = Gtk.FileFilter(name="Ganot8 projects")
+        projects.add_pattern(f"*{project.SUFFIX}")
+        projects.add_mime_type(project.MIME_TYPE)
+        store.append(projects)
+        return store
+
+    def _on_save_project_response(self, dialog: Gtk.FileDialog, result) -> None:
+        try:
+            file = dialog.save_finish(result)
+        except GLib.Error as error:
+            if not error.matches(Gtk.dialog_error_quark(), Gtk.DialogError.DISMISSED):
+                self._show_error("Could not save project", error.message)
+            return
+        if file is None or not file.get_path():
+            return
+
+        target = Path(file.get_path())
+        if target.suffix.lower() != project.SUFFIX:
+            target = target.with_name(target.name + project.SUFFIX)
+
+        if self._document.has_redactions:
+            # Saying this at the moment of saving is the only point where it
+            # can actually change what the user does with the file.
+            self._confirm(
+                heading="Save project with redactions?",
+                body=(
+                    f"{target.name} will contain the original, unredacted image so "
+                    "the redactions stay editable.\n\n"
+                    "Do not share this file. Use Export for anything you send on, "
+                    "or Burn In Redactions first."
+                ),
+                confirm_label="Save Project",
+                on_confirm=lambda: self._write_project(target),
+            )
+        else:
+            self._write_project(target)
+
+    def _write_project(self, target: Path) -> None:
+        try:
+            written = self._document.save_project(target)
+        except Exception as error:
+            log.exception("saving project to %s failed", target)
+            self._show_error("Could not save project", f"{target.name}: {error}")
+            return
+        self._update_title()
+        self._update_redaction_banner()
+        toast = Adw.Toast(title=f"Saved {written.name}")
+        toast.set_button_label("Show in Files")
+        toast.connect("button-clicked", lambda *_: self._reveal(written))
+        self._toasts.add_toast(toast)
+
+    # -- destructive actions ---------------------------------------------
+
+    def _action_overwrite_original(self, *_args) -> None:
+        """Flatten onto the source file, which Ctrl+S deliberately refuses to do."""
+        if self._document is None:
+            return
+        source = self._document.export_basis
+        if source is None or not source.exists():
+            self._show_error(
+                "No original to overwrite",
+                "This image has not been saved anywhere yet. Use Export As instead.",
+            )
+            return
+
+        self._confirm(
+            heading=f"Overwrite {source.name}?",
+            body=(
+                "The annotations will be flattened onto the original file and the "
+                "unmarked image will be lost.\n\n"
+                "Export writes a separate copy instead."
+            ),
+            confirm_label="Overwrite",
+            destructive=True,
+            on_confirm=lambda: self._write_export(source, allow_source=True),
+        )
+
+    def _action_burn_in(self, *_args) -> None:
+        if self._document is None or not self._document.has_redactions:
+            return
+        count = len(self._document.redactions)
+        self._confirm(
+            heading=f"Burn in {count} redaction{'s' if count != 1 else ''}?",
+            body=(
+                "The hidden areas will be merged into the image itself, so a saved "
+                "project no longer contains them.\n\n"
+                "You can still undo this while the image stays open."
+            ),
+            confirm_label="Burn In",
+            destructive=True,
+            on_confirm=self._burn_in,
+        )
+
+    def _burn_in(self) -> None:
+        self._canvas.clear_selection()
+        if self._document.burn_in_redactions():
+            self._update_redaction_banner()
+            self._toasts.add_toast(Adw.Toast(title="Redactions burnt in"))
+
+    def _confirm(
+        self,
+        *,
+        heading: str,
+        body: str,
+        confirm_label: str,
+        on_confirm,
+        destructive: bool = False,
+    ) -> None:
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("confirm", confirm_label)
+        dialog.set_response_appearance(
+            "confirm",
+            Adw.ResponseAppearance.DESTRUCTIVE
+            if destructive
+            else Adw.ResponseAppearance.SUGGESTED,
+        )
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response",
+            lambda _d, response: on_confirm() if response == "confirm" else None,
+        )
+        dialog.present(self)
 
     # -- drag and drop ---------------------------------------------------
 
